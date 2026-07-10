@@ -1,0 +1,77 @@
+name: Build & Test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race detector + coverage)
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  build-binary:
+    name: Build Binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go build \
+            -ldflags="-s -w \
+              -X github.com/ffurlanetto/hydra-operator/internal/version.Version=${VERSION} \
+              -X github.com/ffurlanetto/hydra-operator/internal/version.Commit=${COMMIT} \
+              -X github.com/ffurlanetto/hydra-operator/internal/version.BuildDate=${BUILD_DATE}" \
+            -o hydra-operator-${{ matrix.goos }}-${{ matrix.goarch }} \
+            ./cmd/operator
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydra-operator-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: hydra-operator-${{ matrix.goos }}-${{ matrix.goarch }}
+          retention-days: 7

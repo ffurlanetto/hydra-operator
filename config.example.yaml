@@ -1,0 +1,20 @@
+log:
+  level: info # trace|debug|info|warn|error|fatal
+  format: json # json|console
+
+hydra:
+  url: "https://hydra.example.com"
+  cluster_id: "" # ClusterRef ID, set after registration-token generation in the Hydra UI
+  registration_token: "" # one-time token (HYDRA_REGISTRATION_TOKEN), only needed on first startup
+  http_timeout: 30s
+
+reconciler:
+  sync_interval: 30s
+  heartbeat_interval: 30s
+
+capabilities:
+  check_interval: 5m
+  probe_timeout: 10s
+
+metrics:
+  port: 8080

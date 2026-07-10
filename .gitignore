@@ -1,0 +1,4 @@
+/hydra-operator
+/coverage.out
+*.test
+.DS_Store
