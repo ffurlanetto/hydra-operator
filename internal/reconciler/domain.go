@@ -76,6 +76,10 @@ func (r *DomainReconciler) reconcileOne(ctx context.Context, namespace, hostname
 		// a plain Update, but preserve it explicitly here too since not
 		// every fake clientset used in tests enforces that separation.
 		desired.Status = existing.Status
+		// Knative's admission webhook stamps immutable metadata
+		// annotations (e.g. serving.knative.dev/creator) on Create; carry
+		// them forward since buildDomainMapping never sets its own.
+		desired.ObjectMeta.Annotations = existing.ObjectMeta.Annotations
 		applied, err = mappings.Update(ctx, desired, metav1.UpdateOptions{})
 	}
 	if err != nil {

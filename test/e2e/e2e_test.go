@@ -234,6 +234,23 @@ func TestE2E_NamespaceReconciler_ManagedNamespace_QuotaEnforced(t *testing.T) {
 	_, err := clients.Core.CoreV1().Pods(name).Create(ctx, pod("first"), metav1.CreateOptions{})
 	require.NoError(t, err, "first pod should fit within the quota")
 
+	// The quota admission check reads ResourceQuota.Status.Used, which the
+	// quota controller updates asynchronously after the first pod is
+	// admitted — Create returning success doesn't mean it's reflected yet.
+	// Without waiting for it, the second Create can race ahead of that
+	// update and be wrongly admitted.
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	err = wait.PollUntilContextTimeout(waitCtx, 500*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		quota, err := clients.Core.CoreV1().ResourceQuotas(name).Get(ctx, "hydra-quota", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		used := quota.Status.Used[corev1.ResourcePods]
+		return used.Value() >= 1, nil
+	})
+	require.NoError(t, err, "resourcequota controller should observe the first pod")
+
 	_, err = clients.Core.CoreV1().Pods(name).Create(ctx, pod("second"), metav1.CreateOptions{})
 	require.Error(t, err, "second pod should be rejected: count/pods quota is 1")
 }

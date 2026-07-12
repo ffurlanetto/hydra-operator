@@ -56,6 +56,11 @@ func (r *ContainerReconciler) Reconcile(ctx context.Context, c hydraclient.Conta
 	// plain Update, but preserve it explicitly here too since not every fake
 	// clientset used in tests enforces that separation.
 	desired.Status = existing.Status
+	// Knative's admission webhook stamps metadata.annotations on Create
+	// (e.g. serving.knative.dev/creator) and rejects any Update that changes
+	// or drops them — buildService never sets top-level annotations itself,
+	// so carrying the existing ones forward is always safe.
+	desired.ObjectMeta.Annotations = existing.ObjectMeta.Annotations
 	updated, err := svcs.Update(ctx, desired, metav1.UpdateOptions{})
 	if err != nil {
 		return ContainerStatus{}, fmt.Errorf("reconciler: update service %s/%s: %w", c.NamespaceK8sName, name, err)

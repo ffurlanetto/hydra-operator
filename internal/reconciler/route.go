@@ -80,6 +80,9 @@ func (r *RouteReconciler) Reconcile(ctx context.Context, c hydraclient.Container
 	// plain Update, but preserve it explicitly here too since not every fake
 	// clientset used in tests enforces that separation.
 	desired.Status = existing.Status
+	// OpenShift's admission may similarly stamp router/annotator metadata
+	// on Create; carry existing top-level annotations forward on Update.
+	desired.ObjectMeta.Annotations = existing.ObjectMeta.Annotations
 	updated, err := routes.Update(ctx, desired, metav1.UpdateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("reconciler: update route %s/%s: %w", c.NamespaceK8sName, name, err)
