@@ -39,13 +39,13 @@ import (
 	"github.com/ffurlanetto/hydra-operator/internal/reconciler"
 )
 
-// helloworldImage and autoscaleImage are Knative's own public sample images
-// (ghcr.io/knative pulls are unauthenticated) — used as two distinct
-// "versions" to exercise rollout/rollback/canary without needing a private
-// registry.
+// helloworldImage is Knative's own public sample image (unauthenticated
+// pull). A second real "version" of it isn't used here — guessing another
+// registry tag risks the same 404 this test used to hit before it settled
+// on a TARGET env var change instead, which forces a new Revision (any
+// PodSpec diff does) without depending on any tag's existence.
 const (
 	helloworldImage = "gcr.io/knative-samples/helloworld-go"
-	autoscaleImage  = "gcr.io/knative-samples/autoscale-go:0.1"
 
 	readyTimeout = 3 * time.Minute
 	pollInterval = 2 * time.Second
@@ -118,7 +118,7 @@ func waitForReady(t *testing.T, knative knativeversioned.Interface, namespace, n
 // hydraclient.Container through the full lifecycle Hydra's control plane
 // puts an operator through, against a real Knative controller:
 //  1. initial deploy becomes Ready and reports a real endpoint
-//  2. a restart-generation bump + image change rolls out a new Revision
+//  2. a restart-generation bump + env var change rolls out a new Revision
 //  3. an explicit traffic split (canary) is honored across two Revisions
 //  4. rolling 100% traffic back to the first Revision (rollback) is honored
 func TestE2E_ContainerLifecycle_DeployScaleRollbackCanary(t *testing.T) {
@@ -156,11 +156,13 @@ func TestE2E_ContainerLifecycle_DeployScaleRollbackCanary(t *testing.T) {
 	require.Equal(t, "running", finalStatus.Status)
 	require.NotEmpty(t, finalStatus.EndpointURL)
 
-	// 2. Roll out v2: change the image and bump the restart generation, the
-	// only two things that force a new Revision (buildService keeps every
-	// other field stable across calls).
+	// 2. Roll out v2: change an env var and bump the restart generation.
+	// Any PodSpec diff forces a new Revision — an env var change is used
+	// here instead of a second image, since guessing another registry
+	// tag's exact existence isn't something this repo can verify without
+	// a live pull (see helloworldImage's doc comment).
 	v2 := base
-	v2.Definition.Image = autoscaleImage
+	v2.Definition.Env = []hydraclient.EnvVar{{Name: "TARGET", Value: "v2"}}
 	v2.RestartGeneration = 2
 	_, err = containerReconciler.Reconcile(context.Background(), v2)
 	require.NoError(t, err)
@@ -168,7 +170,7 @@ func TestE2E_ContainerLifecycle_DeployScaleRollbackCanary(t *testing.T) {
 	readySvcV2 := waitForReady(t, clients.Knative, namespace, svcName)
 	revisionV2 := readySvcV2.Status.LatestReadyRevisionName
 	require.NotEmpty(t, revisionV2)
-	require.NotEqual(t, revisionV1, revisionV2, "image change should have produced a new Revision")
+	require.NotEqual(t, revisionV1, revisionV2, "env var change should have produced a new Revision")
 
 	// 3. Canary: split traffic 90/10 between the two Revisions explicitly.
 	canary := v2
