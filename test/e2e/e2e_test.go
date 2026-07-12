@@ -99,6 +99,14 @@ func waitForReady(t *testing.T, knative knativeversioned.Interface, namespace, n
 			return false, err
 		}
 		final = svc
+		// ObservedGeneration lagging Generation means the controller hasn't
+		// processed the latest spec update yet — without this check, a
+		// Service that was already Ready before an Update reads as "Ready"
+		// again instantly on the very next poll, before Knative has even
+		// created the new Revision for that update.
+		if svc.Status.ObservedGeneration != svc.Generation {
+			return false, nil
+		}
 		cond := svc.Status.GetCondition(servingv1.ServiceConditionReady)
 		return cond != nil && cond.IsTrue(), nil
 	})
