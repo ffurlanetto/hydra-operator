@@ -16,6 +16,23 @@ type Config struct {
 	Reconciler   Reconciler   `mapstructure:"reconciler"`
 	Capabilities Capabilities `mapstructure:"capabilities"`
 	Metrics      Metrics      `mapstructure:"metrics"`
+	Operator     Operator     `mapstructure:"operator"`
+}
+
+// Operator controls hydra-operator's own runtime identity — where it
+// persists its cluster JWT and, for local development against a cluster
+// it isn't running inside of, which kubeconfig to use.
+type Operator struct {
+	// Namespace is the operator's own namespace (where its token Secret
+	// lives). Auto-detected from the in-cluster service account when
+	// running as a pod; only needs setting explicitly for local dev.
+	Namespace string `mapstructure:"namespace"`
+	// TokenSecretName is the Secret holding the persisted cluster JWT
+	// (internal/tokenstore).
+	TokenSecretName string `mapstructure:"token_secret_name"`
+	// Kubeconfig is a path to a kubeconfig file, used instead of the
+	// in-cluster config — for local development against kind/k3d/CRC only.
+	Kubeconfig string `mapstructure:"kubeconfig"`
 }
 
 // Log controls the structured logger output.
@@ -72,6 +89,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("capabilities.check_interval", "5m")
 	v.SetDefault("capabilities.probe_timeout", "10s")
 	v.SetDefault("metrics.port", 8080)
+	v.SetDefault("operator.namespace", "")
+	v.SetDefault("operator.token_secret_name", "hydra-operator-token")
+	v.SetDefault("operator.kubeconfig", "")
 
 	v.SetEnvPrefix("HYDRA")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
