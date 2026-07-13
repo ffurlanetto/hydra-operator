@@ -71,6 +71,26 @@ func TestDetector_Detect_KourierServicePresent_DetectsKourier(t *testing.T) {
 	assert.True(t, result.Capabilities.KourierPresent)
 }
 
+func TestDetector_Detect_GatekeeperCluster_DetectsGatekeeper(t *testing.T) {
+	client := newFakeClientWithGroups("constraints.gatekeeper.sh/v1beta1", "serving.knative.dev/v1")
+
+	d := capabilities.New(client, time.Second)
+	result, err := d.Detect(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, result.Capabilities.GatekeeperAvailable)
+}
+
+func TestDetector_Detect_NoGatekeeper_ReportsUnavailable(t *testing.T) {
+	client := newFakeClientWithGroups("serving.knative.dev/v1")
+
+	d := capabilities.New(client, time.Second)
+	result, err := d.Detect(t.Context())
+	require.NoError(t, err)
+
+	assert.False(t, result.Capabilities.GatekeeperAvailable)
+}
+
 func TestDetector_Detect_CountsNodes(t *testing.T) {
 	client := newFakeClientWithGroups()
 	for _, name := range []string{"node-1", "node-2", "node-3"} {

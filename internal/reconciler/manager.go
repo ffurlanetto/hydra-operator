@@ -17,6 +17,7 @@ type ManagerConfig struct {
 	Containers        *ContainerReconciler
 	Routes            *RouteReconciler
 	Domains           *DomainReconciler
+	Policy            *PolicyReconciler
 	Capabilities      *capabilities.Detector
 	Log               zerolog.Logger
 	OperatorVersion   string
@@ -94,6 +95,8 @@ func (m *Manager) SyncOnce(ctx context.Context) {
 		return
 	}
 
+	m.reconcilePolicy(ctx, state.SecurityPolicy)
+
 	namespacesSynced := m.reconcileNamespaces(ctx, state.Namespaces)
 	containersReady := m.reconcileContainers(ctx, state.Containers)
 
@@ -103,6 +106,26 @@ func (m *Manager) SyncOnce(ctx context.Context) {
 		ContainersReady:  containersReady,
 	}); err != nil {
 		m.cfg.Log.Error().Err(err).Msg("manager: report cluster status failed")
+	}
+}
+
+// reconcilePolicy applies Hydra's SecurityPolicy as Gatekeeper Constraints
+// (ADR-026 MVP), but only on clusters where Gatekeeper is actually
+// installed — same detect-don't-install pattern already used for
+// Kourier/OpenShift. A failed detection or reconcile is logged, not fatal:
+// policy enforcement is best-effort infrastructure, not gating container
+// reconciliation.
+func (m *Manager) reconcilePolicy(ctx context.Context, policy hydraclient.SecurityPolicy) {
+	caps, err := m.cfg.Capabilities.Detect(ctx)
+	if err != nil {
+		m.cfg.Log.Error().Err(err).Msg("manager: capabilities detect failed (policy reconcile skipped)")
+		return
+	}
+	if !caps.Capabilities.GatekeeperAvailable {
+		return
+	}
+	if err := m.cfg.Policy.Reconcile(ctx, policy); err != nil {
+		m.cfg.Log.Error().Err(err).Msg("manager: policy reconcile failed")
 	}
 }
 

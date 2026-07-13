@@ -127,3 +127,10 @@ To get it manually:
 - **Env var secrets** (`internal/reconciler/container.go`'s `buildEnv`) assume a Secret
   key matching the env var's own name; this is a simplification, not validated against
   a real Secret's actual keys in any tier yet.
+- **No tier exercises `PolicyReconciler` against a real Gatekeeper install** (ADR-026 MVP):
+  unit tests cover it via `k8s.io/client-go/dynamic/fake`, but `e2e-kind.yml` doesn't
+  install Gatekeeper, so the Rego policies themselves (`internal/reconciler/policy.go`)
+  have never been evaluated by a real admission webhook — only that the operator
+  produces the `ConstraintTemplate`/`Constraint` objects it intends to.
+- **cosign/sigstore image-signature verification is not implemented** — ADR-026's Phase 2,
+  tracked as a follow-up, not started (see the ADR's "État d'implémentation" section).

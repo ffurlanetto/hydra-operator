@@ -101,6 +101,7 @@ func main() {
 		Containers:        reconciler.NewContainerReconciler(clients.Knative),
 		Routes:            reconciler.NewRouteReconciler(clients.Route),
 		Domains:           reconciler.NewDomainReconciler(clients.Knative),
+		Policy:            reconciler.NewPolicyReconciler(clients.Dynamic),
 		Capabilities:      capabilities.New(clients.Core, cfg.Capabilities.ProbeTimeout),
 		Log:               log,
 		OperatorVersion:   version.String(),

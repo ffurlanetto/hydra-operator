@@ -1,14 +1,17 @@
 // Package k8sclient builds the Kubernetes API clients hydra-operator needs:
 // the standard client-go clientset (Namespaces, Secrets, ResourceQuotas),
 // Knative Serving's typed clientset (Service, Revision, Route,
-// DomainMapping), and OpenShift's Route clientset (used only when a
-// cluster's capabilities require it, HYDRA-052).
+// DomainMapping), OpenShift's Route clientset (used only when a cluster's
+// capabilities require it, HYDRA-052), and a dynamic client for Gatekeeper's
+// ConstraintTemplate/Constraint CRDs (ADR-026 MVP), which have no generated
+// Go clientset.
 package k8sclient
 
 import (
 	"fmt"
 
 	routeversioned "github.com/openshift/client-go/route/clientset/versioned"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -20,6 +23,7 @@ type Clients struct {
 	Core    kubernetes.Interface
 	Knative knativeversioned.Interface
 	Route   routeversioned.Interface
+	Dynamic dynamic.Interface
 }
 
 // NewInCluster builds Clients using the in-cluster service account config —
@@ -57,5 +61,9 @@ func newForConfig(cfg *rest.Config) (*Clients, error) {
 	if err != nil {
 		return nil, fmt.Errorf("k8sclient: openshift route clientset: %w", err)
 	}
-	return &Clients{Core: core, Knative: knativeClient, Route: routeClient}, nil
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("k8sclient: dynamic client: %w", err)
+	}
+	return &Clients{Core: core, Knative: knativeClient, Route: routeClient, Dynamic: dynamicClient}, nil
 }

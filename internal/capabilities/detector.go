@@ -18,6 +18,7 @@ const (
 	openShiftRouteGroupVersion = "route.openshift.io/v1"
 	gatewayAPIGroupVersion     = "gateway.networking.k8s.io/v1"
 	knativeServingGroupVersion = "serving.knative.dev/v1"
+	gatekeeperGroupVersion     = "constraints.gatekeeper.sh/v1beta1"
 	kourierNamespace           = "kourier-system"
 	kourierServiceName         = "kourier"
 )
@@ -29,6 +30,10 @@ type Capabilities struct {
 	KourierPresent     bool `json:"kourier_present"`
 	GatewayAPIPresent  bool `json:"gateway_api_present"`
 	KnativeAvailable   bool `json:"knative_available"`
+	// GatekeeperAvailable gates PolicyReconciler (ADR-026 MVP): OPA/Gatekeeper
+	// itself must be installed by the platform team, same as Kourier/OpenShift
+	// — this operator only detects it and reconciles Constraints against it.
+	GatekeeperAvailable bool `json:"gatekeeper_available"`
 }
 
 // Result bundles Capabilities with the other facts reported at heartbeat time.
@@ -68,6 +73,7 @@ func (d *Detector) Detect(ctx context.Context) (Result, error) {
 	result.Capabilities.OpenShiftAvailable = d.groupVersionAvailable(openShiftRouteGroupVersion)
 	result.Capabilities.GatewayAPIPresent = d.groupVersionAvailable(gatewayAPIGroupVersion)
 	result.Capabilities.KnativeAvailable = d.groupVersionAvailable(knativeServingGroupVersion)
+	result.Capabilities.GatekeeperAvailable = d.groupVersionAvailable(gatekeeperGroupVersion)
 	result.Capabilities.KourierPresent = d.kourierPresent(ctx)
 
 	version, err := d.core.Discovery().ServerVersion()

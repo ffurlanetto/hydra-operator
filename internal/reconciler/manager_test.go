@@ -13,6 +13,12 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	kubeversion "k8s.io/apimachinery/pkg/version"
+	discoveryfake "k8s.io/client-go/discovery/fake"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	knativefake "knative.dev/serving/pkg/client/clientset/versioned/fake"
 
@@ -106,6 +112,7 @@ func newTestManager(t *testing.T, stub *hydraStub) *reconciler.Manager {
 		Containers:        reconciler.NewContainerReconciler(knative),
 		Routes:            reconciler.NewRouteReconciler(routefake.NewSimpleClientset()), // no container needs a Route in these tests
 		Domains:           reconciler.NewDomainReconciler(knative),
+		Policy:            reconciler.NewPolicyReconciler(dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())), // Gatekeeper not detected in these tests, never invoked
 		Capabilities:      capabilities.New(core, time.Second),
 		Log:               zerolog.Nop(),
 		OperatorVersion:   "test",
@@ -182,6 +189,45 @@ func TestManager_HeartbeatOnce_ReportsCapabilities(t *testing.T) {
 	require.Len(t, stub.heartbeats, 1)
 	assert.Equal(t, "test", stub.heartbeats[0].OperatorVersion)
 	assert.Contains(t, string(stub.heartbeats[0].Capabilities), "openshift_available")
+}
+
+func TestManager_SyncOnce_GatekeeperDetected_ReconcilesPolicy(t *testing.T) {
+	stub := newHydraStub()
+	stub.desiredState = hydraclient.DesiredState{
+		SecurityPolicy: hydraclient.SecurityPolicy{AllowedRegistries: []string{"registry.example.com/"}},
+	}
+	srv := stub.server(t)
+	t.Cleanup(srv.Close)
+
+	hydra := hydraclient.New(srv.URL, "cluster-1", 5*time.Second)
+	hydra.SetToken("jwt-abc")
+
+	core := fake.NewClientset()
+	fakeDiscovery := core.Discovery().(*discoveryfake.FakeDiscovery)
+	fakeDiscovery.FakedServerVersion = &kubeversion.Info{GitVersion: "v1.31.0"}
+	fakeDiscovery.Resources = []*metav1.APIResourceList{
+		{GroupVersion: "constraints.gatekeeper.sh/v1beta1"},
+	}
+	dynClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+
+	m := reconciler.NewManager(reconciler.ManagerConfig{
+		Hydra:             hydra,
+		Namespaces:        reconciler.NewNamespaceReconciler(core),
+		Containers:        reconciler.NewContainerReconciler(knativefake.NewSimpleClientset()),
+		Routes:            reconciler.NewRouteReconciler(routefake.NewSimpleClientset()),
+		Domains:           reconciler.NewDomainReconciler(knativefake.NewSimpleClientset()),
+		Policy:            reconciler.NewPolicyReconciler(dynClient),
+		Capabilities:      capabilities.New(core, time.Second),
+		Log:               zerolog.Nop(),
+		SyncInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+
+	m.SyncOnce(t.Context())
+
+	allowedReposGVR := schema.GroupVersionResource{Group: "constraints.gatekeeper.sh", Version: "v1beta1", Resource: "k8sallowedrepos"}
+	_, err := dynClient.Resource(allowedReposGVR).Get(t.Context(), "hydra-allowed-repos", metav1.GetOptions{})
+	assert.NoError(t, err, "Gatekeeper being detected should have triggered a policy reconcile")
 }
 
 func TestManager_SyncOnce_NamespaceReconcileFails_ReportsErrorStatus(t *testing.T) {
