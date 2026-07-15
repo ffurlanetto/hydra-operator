@@ -101,6 +101,21 @@ scenario that needs a genuine OpenShift Route controller: does OpenShift's
 real router admit the `Route` this operator builds and assign it a routable
 host.
 
+This scenario deploys a Knative `Service` first (it reconciles the Route for
+an already-Ready ksvc), so CRC needs **Knative Serving** too. A stock CRC has
+`route.openshift.io` but no `serving.knative.dev`; in that case the test skips
+itself cleanly (its `KnativeAvailable` guard) rather than failing. To actually
+run this leg, install OpenShift Serverless:
+
+```sh
+./scripts/e2e-local.sh --install-serverless
+```
+
+which subscribes CRC to the OpenShift Serverless operator and creates a
+`KnativeServing` instance before running the leg. This is opt-in because it's
+heavy — an operator subscription plus several minutes and notable RAM/CPU on
+single-node CRC.
+
 **This can never run in GitHub Actions**, or in any environment without
 hardware virtualization: CRC packages a full OpenShift cluster in a VM via
 libvirt/KVM, and standard hosted CI runners (and this repository's own

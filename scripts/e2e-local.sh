@@ -48,10 +48,26 @@ install_kind_if_missing() {
   require_cmd kind
 }
 
+# kind talks to docker by default and only uses podman when
+# KIND_EXPERIMENTAL_PROVIDER says so — requiring one runtime or the other
+# isn't enough, the choice has to be handed to kind explicitly.
+select_container_runtime() {
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    log "using docker as kind's container runtime"
+    return
+  fi
+  if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+    log "docker not usable — using podman as kind's container runtime"
+    export KIND_EXPERIMENTAL_PROVIDER=podman
+    return
+  fi
+  die "need a running container runtime: install docker, or podman with a started machine ('podman machine start')"
+}
+
 run_kind_leg() {
-  require_cmd docker
   require_cmd kubectl
   require_cmd go
+  select_container_runtime
   install_kind_if_missing
 
   if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
@@ -101,11 +117,88 @@ run_crc_leg_if_available() {
   [[ -f "$kubeconfig" ]] || die "could not locate crc's kubeconfig — run 'crc console --credentials' to check your setup"
 
   export KUBECONFIG="$kubeconfig"
+
+  # The OpenShift Route test deploys a Knative Service first, so CRC needs
+  # Knative too. A stock CRC has route.openshift.io but no serving.knative.dev;
+  # without Knative the test skips itself cleanly (its own KnativeAvailable
+  # guard). Pass --install-serverless to install OpenShift Serverless so the
+  # leg actually runs — heavy (operator subscription, several minutes, notable
+  # RAM/CPU on single-node CRC), hence opt-in.
+  if ! kubectl api-resources --api-group=serving.knative.dev 2>/dev/null | grep -q .; then
+    if [[ "$INSTALL_SERVERLESS" == "1" ]]; then
+      install_openshift_serverless
+    else
+      log "crc has no Knative Serving — the OpenShift Route test will skip itself. Pass --install-serverless to install OpenShift Serverless and actually run it."
+    fi
+  fi
+
   log "running the OpenShift-only e2e test against CRC"
   (cd "$REPO_ROOT" && go test -tags e2e ./test/e2e/... -run TestE2E_RouteReconciler_OnOpenShift -v -timeout 10m)
 }
 
+# install_openshift_serverless subscribes to the OpenShift Serverless operator
+# and creates a KnativeServing instance, then waits for it to come up. Assumes
+# KUBECONFIG already points at CRC with cluster-admin (crc's default kubeadmin).
+install_openshift_serverless() {
+  log "installing OpenShift Serverless operator on CRC (this takes several minutes)"
+  kubectl apply -f - <<'EOF'
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: serverless-operator
+  namespace: openshift-serverless
+spec:
+  channel: stable
+  name: serverless-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-serverless
+EOF
+  log "waiting for the Serverless operator CSV to succeed"
+  local deadline=$((SECONDS + 600))
+  until kubectl get csv -n openshift-serverless 2>/dev/null \
+      | grep -i serverless | grep -qi Succeeded; do
+    [[ $SECONDS -lt $deadline ]] || die "OpenShift Serverless operator did not become ready within 10m"
+    sleep 10
+  done
+
+  log "creating the KnativeServing instance"
+  kubectl create namespace knative-serving 2>/dev/null || true
+  kubectl apply -f - <<'EOF'
+apiVersion: operator.knative.dev/v1beta1
+kind: KnativeServing
+metadata:
+  name: knative-serving
+  namespace: knative-serving
+EOF
+  kubectl wait --for=condition=Ready knativeserving/knative-serving \
+    -n knative-serving --timeout=300s
+}
+
+INSTALL_SERVERLESS=0
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --install-serverless) INSTALL_SERVERLESS=1 ;;
+      -h|--help)
+        printf 'usage: %s [--install-serverless]\n\n' "$(basename "$0")"
+        printf '  --install-serverless  install OpenShift Serverless on a running CRC so\n'
+        printf '                        the OpenShift Route e2e leg actually runs (heavy;\n'
+        printf '                        default is to skip that leg if Knative is absent).\n'
+        exit 0 ;;
+      *) die "unknown argument: $1 (see --help)" ;;
+    esac
+    shift
+  done
+}
+
 main() {
+  parse_args "$@"
   run_kind_leg
   run_crc_leg_if_available
   log "all done"

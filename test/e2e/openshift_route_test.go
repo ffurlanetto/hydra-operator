@@ -32,6 +32,14 @@ func TestE2E_RouteReconciler_OnOpenShift_RealRouterAdmitsRoute(t *testing.T) {
 	if !result.Capabilities.OpenShiftAvailable {
 		t.Skip("cluster has no route.openshift.io API — skipping (needs real OpenShift Local/CRC, see docs/testing/e2e.md)")
 	}
+	// This scenario deploys a Knative Service before reconciling the Route,
+	// so it needs Knative's controller too — a stock CRC has route.openshift.io
+	// but no serving.knative.dev, and without this guard it would sail past the
+	// OpenShift check and die on the ksvc create. Install OpenShift Serverless
+	// (scripts/e2e-local.sh --install-serverless) to actually run this leg.
+	if !result.Capabilities.KnativeAvailable {
+		t.Skip("cluster has no serving.knative.dev API — skipping (install OpenShift Serverless, e.g. scripts/e2e-local.sh --install-serverless, see docs/testing/e2e.md)")
+	}
 
 	namespace := newTestNamespace(t, clients)
 	containerID := "e2e-route"
