@@ -1,0 +1,61 @@
+# RBAC computed strictly from what internal/reconciler and
+# internal/capabilities actually call — no wildcard grants. Update this file
+# whenever a reconciler starts touching a new resource; don't grant ahead of
+# need.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hydra-operator
+  labels:
+    app.kubernetes.io/name: hydra-operator
+rules:
+  # internal/reconciler/namespace.go — creates/updates managed namespaces,
+  # never deletes one (only imported-mode namespaces are required to
+  # pre-exist, and are never removed by this operator).
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # internal/capabilities/detector.go — kourierPresent() Gets the
+  # kourier-system/kourier Service; Detect() lists Nodes for node_count.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+  # internal/reconciler/container.go, domain.go — the only Knative
+  # resources this operator manages.
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["domainmappings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+  # internal/reconciler/route.go — OpenShift fallback when Kourier/Gateway
+  # API aren't present.
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # internal/reconciler/policy.go (ADR-026 MVP) — exactly the three
+  # Constraint kinds this operator's ConstraintTemplates define. Gatekeeper
+  # itself is detected, never installed, by this operator (same principle
+  # as Kourier/OpenShift above).
+  - apiGroups: ["templates.gatekeeper.sh"]
+    resources: ["constrainttemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["constraints.gatekeeper.sh"]
+    resources: ["k8srequiredresourcelimits", "k8sblockprivileged", "k8sallowedrepos"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # internal/capabilities/detector.go — groupVersionAvailable() calls
+  # Discovery().ServerResourcesForGroupVersion, which hits these
+  # non-resource discovery endpoints.
+  - nonResourceURLs: ["/apis", "/apis/*", "/version"]
+    verbs: ["get"]

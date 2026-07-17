@@ -1,0 +1,17 @@
+# Mirrors deploy/base/role.yaml — see that file for the resourceNames/create
+# split rationale.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hydra-operator
+  namespace: {{ include "hydra-operator.namespace" . }}
+  labels:
+    {{- include "hydra-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ .Values.tokenSecretName | quote }}]
+    verbs: ["get", "update"]
