@@ -75,3 +75,34 @@ jobs:
           name: hydra-operator-${{ matrix.goos }}-${{ matrix.goarch }}
           path: hydra-operator-${{ matrix.goos }}-${{ matrix.goarch }}
           retention-days: 7
+
+  deploy-manifests:
+    name: Validate deployment manifests (Kustomize + Helm)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.0"
+
+      - name: Render Kustomize base
+        run: kubectl kustomize deploy/base > /tmp/kustomize-rendered.yaml
+
+      - name: Helm lint
+        run: helm lint ./helm
+
+      - name: Render Helm chart
+        run: |
+          helm template hydra-operator ./helm \
+            --set hydra.url=https://hydra.example.com \
+            --set hydra.clusterId=example-cluster \
+            > /tmp/helm-rendered.yaml
+
+      - name: Check RBAC drift between Kustomize and Helm
+        run: python3 scripts/check-rbac-drift.py /tmp/kustomize-rendered.yaml /tmp/helm-rendered.yaml

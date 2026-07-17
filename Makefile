@@ -11,7 +11,7 @@ LDFLAGS    := -s -w \
 
 ENVTEST_K8S_VERSION := 1.31.0
 
-.PHONY: all build test lint docker helm-lint run clean tidy test-envtest test-e2e e2e-local
+.PHONY: all build test lint docker helm-lint helm-template deploy-validate rbac-drift-check run clean tidy test-envtest test-e2e e2e-local
 
 all: build
 
@@ -56,9 +56,31 @@ docker:
 	  -t ghcr.io/ffurlanetto/hydra-operator:$(VERSION) \
 	  .
 
-## helm-lint: Lint the Helm chart (added in Epic 2/OP-014).
+## helm-lint: Lint the Helm chart.
 helm-lint:
-	@if [ -d helm ]; then helm lint ./helm; else echo "helm chart not present yet"; fi
+	helm lint ./helm
+
+## helm-template: Render the Helm chart to stdout with placeholder values.
+helm-template:
+	helm template hydra-operator ./helm \
+	  --set hydra.url=https://hydra.example.com \
+	  --set hydra.clusterId=example-cluster
+
+## deploy-validate: Render deploy/base with Kustomize (build-only check, no cluster needed).
+deploy-validate:
+	kubectl kustomize deploy/base > /dev/null
+	kubectl kustomize deploy/overlays/example > /dev/null
+
+## rbac-drift-check: Fail if the ClusterRole differs between deploy/base and helm/.
+rbac-drift-check:
+	kubectl kustomize deploy/base > /tmp/hydra-operator-kustomize-rendered.yaml
+	helm template hydra-operator ./helm \
+	  --set hydra.url=https://hydra.example.com \
+	  --set hydra.clusterId=example-cluster \
+	  > /tmp/hydra-operator-helm-rendered.yaml
+	python3 scripts/check-rbac-drift.py \
+	  /tmp/hydra-operator-kustomize-rendered.yaml \
+	  /tmp/hydra-operator-helm-rendered.yaml
 
 ## run: Build and run the operator locally.
 run: build
