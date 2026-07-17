@@ -1,6 +1,6 @@
 module github.com/ffurlanetto/hydra-operator
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/openshift/api v0.0.0-20260702202555-ef71f942ef6c
