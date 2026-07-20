@@ -139,9 +139,14 @@ To get it manually:
   can't call back with per-domain status yet. Needs a Hydra-side change (add domain IDs
   to the desired-state payload) before this can be closed — out of scope for this repo.
 - **envtest does not cover the OpenShift Route CRD** — see tier 2 above.
-- **Env var secrets** (`internal/reconciler/container.go`'s `buildEnv`) assume a Secret
-  key matching the env var's own name; this is a simplification, not validated against
-  a real Secret's actual keys in any tier yet.
+- ~~**Env var secrets** (`internal/reconciler/container.go`'s `buildEnv`) assume a Secret
+  key matching the env var's own name~~ — resolved: `hydraclient.EnvVar` now has an
+  optional `SecretKey` field (`secret_key` in JSON). When set, `buildEnv` uses it as the
+  Secret's key; when absent/empty it falls back to the env var's own name, preserving the
+  prior behavior. This still isn't validated against a real Secret's actual keys in any
+  e2e tier (unit tests only), and depends on Hydra's desired-state payload populating a
+  matching field — see `internal/hydraclient/client.go`'s `EnvVar.SecretKey` doc comment
+  for the expected shape.
 - **No tier exercises `PolicyReconciler` against a real Gatekeeper install** (ADR-026 MVP):
   unit tests cover it via `k8s.io/client-go/dynamic/fake`, but `e2e-kind.yml` doesn't
   install Gatekeeper, so the Rego policies themselves (`internal/reconciler/policy.go`)
