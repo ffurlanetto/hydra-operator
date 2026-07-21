@@ -38,7 +38,7 @@ jobs:
         run: go test -tags envtest ./test/envtest/... -v -timeout 5m
 
   e2e-kind:
-    name: e2e (real kind cluster + Knative + Kourier)
+    name: e2e (real kind cluster + Knative + Kourier + Gatekeeper)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +70,31 @@ jobs:
 
           kubectl -n knative-serving wait --for=condition=Available deployment --all --timeout=180s
           kubectl -n kourier-system wait --for=condition=Available deployment --all --timeout=180s
+
+      # Pinned (not "latest"): PolicyReconciler's Rego bodies
+      # (internal/reconciler/policy.go) are asserted here against a real
+      # admission webhook's exact behavior — floating this URL would make an
+      # upstream Gatekeeper release the thing that silently breaks this leg.
+      # Keep this version in sync with scripts/e2e-local.sh's GATEKEEPER_VERSION.
+      - name: Install OPA Gatekeeper
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/v3.23.0/deploy/gatekeeper.yaml
+          kubectl wait --for=condition=Established --timeout=60s crd --all
+          kubectl -n gatekeeper-system wait --for=condition=Available deployment --all --timeout=180s
+
+          # Available doesn't mean the webhook's self-signed CA is patched into
+          # the ValidatingWebhookConfiguration yet (a few seconds' lag after the
+          # pod starts) — poll for it instead of a fixed sleep. The e2e test
+          # itself also retries, so this is a best-effort head start.
+          deadline=$((SECONDS + 120))
+          until [[ -n "$(kubectl get validatingwebhookconfiguration gatekeeper-validating-webhook-configuration -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]]; do
+            if [[ $SECONDS -ge $deadline ]]; then
+              echo "gatekeeper webhook CA bundle not observed within 2m — continuing anyway, the e2e test retries"
+              break
+            fi
+            sleep 3
+          done
 
       - name: Export kubeconfig
         run: kind get kubeconfig --name hydra-e2e > "${{ runner.temp }}/kubeconfig"
