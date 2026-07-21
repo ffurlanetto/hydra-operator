@@ -141,10 +141,10 @@ To get it manually:
   e2e tier (unit tests only), and depends on Hydra's desired-state payload populating a
   matching field — see `internal/hydraclient/client.go`'s `EnvVar.SecretKey` doc comment
   for the expected shape.
-- **No tier exercises `PolicyReconciler` against a real Gatekeeper install** (ADR-026 MVP):
-  unit tests cover it via `k8s.io/client-go/dynamic/fake`, but `e2e-kind.yml` doesn't
-  install Gatekeeper, so the Rego policies themselves (`internal/reconciler/policy.go`)
-  have never been evaluated by a real admission webhook — only that the operator
-  produces the `ConstraintTemplate`/`Constraint` objects it intends to.
+- ~~No tier exercises `PolicyReconciler` against a real Gatekeeper install~~ **Resolved**:
+  `test/e2e/policy_test.go` now installs a pinned Gatekeeper release in the kind e2e leg
+  and asserts the real admission webhook rejects Pods violating each Rego policy
+  (`internal/reconciler/policy.go`), not just that the operator produces the right
+  `ConstraintTemplate`/`Constraint` objects.
 - **cosign/sigstore image-signature verification is not implemented** — ADR-026's Phase 2,
   tracked as a follow-up, not started (see the ADR's "État d'implémentation" section).
