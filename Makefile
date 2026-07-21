@@ -28,12 +28,16 @@ lint:
 	go vet ./...
 
 ## test-envtest: Run the envtest suite (real kube-apiserver+etcd, no controllers).
-## Fetches kubebuilder binaries and Knative CRDs; not part of `test`/CI's default job.
+## Fetches kubebuilder binaries, Knative CRDs, and the OpenShift Route CRD;
+## not part of `test`/CI's default job.
 test-envtest:
 	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 	mkdir -p test/envtest/crds
 	curl -fsSL -o test/envtest/crds/serving-crds.yaml \
 	  https://github.com/knative/serving/releases/latest/download/serving-crds.yaml
+	OPENSHIFT_API_COMMIT="$$(go list -m -f '{{.Version}}' github.com/openshift/api | sed -E 's/.*-//')"; \
+	curl -fsSL -o test/envtest/crds/route-crd.yaml \
+	  "https://raw.githubusercontent.com/openshift/api/$${OPENSHIFT_API_COMMIT}/route/v1/zz_generated.crd-manifests/routes.crd.yaml"
 	KUBEBUILDER_ASSETS="$$(setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" \
 	  go test -tags envtest ./test/envtest/... -v -timeout 5m
 
