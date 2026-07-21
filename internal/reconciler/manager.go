@@ -166,12 +166,14 @@ func (m *Manager) reconcileContainers(ctx context.Context, containers []hydracli
 		}
 
 		// Custom domain reconciliation (DomainMapping objects) runs for
-		// real, but its per-hostname outcome can't be reported back via
-		// PUT /operator/domains/:domainId/status yet: Hydra's desired-state
-		// payload (Container.CustomDomains) carries only hostnames, not the
-		// CustomDomain row's UUID that endpoint requires. Needs a follow-up
-		// on the Hydra side to include domain IDs alongside hostnames.
-		m.cfg.Domains.Reconcile(ctx, c)
+		// real, and each hostname's outcome is reported back individually
+		// via PUT /operator/domains/:domainId/status — but only once Hydra's
+		// desired-state payload actually carries a domain ID alongside the
+		// hostname (hydraclient.CustomDomain.ID). On an older Hydra API (or
+		// any entry Hydra sends without an ID), reportDomainStatuses skips
+		// the callback for that domain rather than erroring: the
+		// DomainMapping itself is still reconciled either way.
+		m.reportDomainStatuses(ctx, m.cfg.Domains.Reconcile(ctx, c))
 
 		if status.Status == "running" {
 			ready++
@@ -188,4 +190,29 @@ func (m *Manager) reconcileContainers(ctx context.Context, containers []hydracli
 		}
 	}
 	return ready
+}
+
+// reportDomainStatuses reports each domain's reconciliation outcome back to
+// Hydra via PUT /operator/domains/:domainId/status. A domain whose ID is
+// empty is skipped (logged at debug, not an error): that happens whenever
+// Hydra's desired-state payload didn't include a domain ID for that entry —
+// either an older Hydra API talking to a newer operator, or the Hydra-side
+// change that adds domain IDs to Container.CustomDomains hasn't landed yet.
+// The DomainMapping itself was already reconciled by Domains.Reconcile
+// regardless; only the status callback is affected.
+func (m *Manager) reportDomainStatuses(ctx context.Context, statuses []DomainStatus) {
+	for _, s := range statuses {
+		if s.ID == "" {
+			m.cfg.Log.Debug().Str("hostname", s.Hostname).
+				Msg("manager: skipping domain status callback, no domain ID from Hydra's desired-state payload")
+			continue
+		}
+		if err := m.cfg.Hydra.PutDomainStatus(ctx, s.ID, hydraclient.DomainStatusRequest{
+			Status:       s.Status,
+			ErrorMessage: s.Error,
+		}); err != nil {
+			m.cfg.Log.Error().Err(err).Str("hostname", s.Hostname).Str("domain_id", s.ID).
+				Msg("manager: report domain status failed")
+		}
+	}
 }

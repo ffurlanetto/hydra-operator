@@ -132,12 +132,6 @@ To get it manually:
 
 ## Known gaps (documented, not silently worked around)
 
-- **Domain status is never reported back to Hydra** (`internal/reconciler/manager.go`):
-  Hydra's desired-state payload only sends `CustomDomains []string` (hostnames), never
-  the `CustomDomain` row's UUID that `PUT /operator/domains/:domainId/status` requires.
-  The `DomainReconciler` still creates/updates the real `DomainMapping` objects; it just
-  can't call back with per-domain status yet. Needs a Hydra-side change (add domain IDs
-  to the desired-state payload) before this can be closed — out of scope for this repo.
 - **envtest does not cover the OpenShift Route CRD** — see tier 2 above.
 - **Env var secrets** (`internal/reconciler/container.go`'s `buildEnv`) assume a Secret
   key matching the env var's own name; this is a simplification, not validated against

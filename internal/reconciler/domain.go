@@ -13,8 +13,13 @@ import (
 )
 
 // DomainStatus is the outcome of reconciling one custom domain, mapped onto
-// hydraclient.DomainStatusRequest's vocabulary ("active" | "error").
+// hydraclient.DomainStatusRequest's vocabulary ("active" | "error"). ID is
+// the hydraclient.CustomDomain's ID as received from Hydra's desired-state
+// payload; it may be empty if Hydra hasn't sent one yet (see CustomDomain's
+// doc comment) — callers must treat an empty ID as "cannot report this
+// domain's status back to Hydra", not as an error.
 type DomainStatus struct {
+	ID       string
 	Hostname string
 	Status   string
 	Error    string
@@ -41,8 +46,10 @@ func NewDomainReconciler(knative knativeversioned.Interface) *DomainReconciler {
 func (r *DomainReconciler) Reconcile(ctx context.Context, c hydraclient.Container) []DomainStatus {
 	ksvcName := KsvcNameFor(c.ID)
 	statuses := make([]DomainStatus, 0, len(c.CustomDomains))
-	for _, hostname := range c.CustomDomains {
-		statuses = append(statuses, r.reconcileOne(ctx, c.NamespaceK8sName, hostname, ksvcName))
+	for _, domain := range c.CustomDomains {
+		status := r.reconcileOne(ctx, c.NamespaceK8sName, domain.Hostname, ksvcName)
+		status.ID = domain.ID
+		statuses = append(statuses, status)
 	}
 	return statuses
 }
