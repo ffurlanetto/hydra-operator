@@ -34,6 +34,16 @@ jobs:
           curl -fsSL -o test/envtest/crds/serving-crds.yaml \
             https://github.com/knative/serving/releases/latest/download/serving-crds.yaml
 
+      # Pinned to the exact commit go.mod already requires for routev1/
+      # route/clientset/versioned, so the CRD schema always matches the Go
+      # types this repo compiles against (see Makefile's test-envtest target
+      # for the same command — kept in sync).
+      - name: Fetch OpenShift Route CRD
+        run: |
+          OPENSHIFT_API_COMMIT="$(go list -m -f '{{.Version}}' github.com/openshift/api | sed -E 's/.*-//')"
+          curl -fsSL -o test/envtest/crds/route-crd.yaml \
+            "https://raw.githubusercontent.com/openshift/api/${OPENSHIFT_API_COMMIT}/route/v1/zz_generated.crd-manifests/routes.crd.yaml"
+
       - name: Run envtest suite
         run: go test -tags envtest ./test/envtest/... -v -timeout 5m
 
