@@ -1,0 +1,39 @@
+# Mirrors deploy/base/clusterrole.yaml rule-for-rule — CI's drift-check
+# compares the two and fails the build if they diverge. Update both in the
+# same change. See that file for per-rule provenance comments.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hydra-operator
+  labels:
+    {{- include "hydra-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["domainmappings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["templates.gatekeeper.sh"]
+    resources: ["constrainttemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["constraints.gatekeeper.sh"]
+    resources: ["k8srequiredresourcelimits", "k8sblockprivileged", "k8sallowedrepos"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - nonResourceURLs: ["/apis", "/apis/*", "/version"]
+    verbs: ["get"]

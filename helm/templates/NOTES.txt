@@ -1,0 +1,20 @@
+hydra-operator has been installed into {{ include "hydra-operator.namespace" . }}.
+
+Prerequisite: Knative Serving must already be present on this cluster — the
+operator's /readyz will report not-ready (and it logs a fatal error) if it
+isn't. This chart does not install Knative.
+
+{{- if not .Values.hydra.registrationToken }}
+
+No hydra.registrationToken was set, so no registration Secret was created.
+Create it before the operator's first startup:
+
+  kubectl create secret generic hydra-operator-registration \
+    -n {{ include "hydra-operator.namespace" . }} \
+    --from-literal=token=<one-time-token>
+{{- end }}
+
+Check status:
+
+  kubectl -n {{ include "hydra-operator.namespace" . }} get pods -l app.kubernetes.io/name=hydra-operator
+  kubectl -n {{ include "hydra-operator.namespace" . }} logs -l app.kubernetes.io/name=hydra-operator

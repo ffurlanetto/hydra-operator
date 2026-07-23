@@ -1,0 +1,11 @@
+apiVersion: v2
+name: hydra-operator
+description: >-
+  Cluster agent that reconciles Hydra-managed workloads onto Knative
+  Serving, with optional Gatekeeper policy enforcement (ADR-026 MVP).
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/ffurlanetto/hydra-operator
+sources:
+  - https://github.com/ffurlanetto/hydra-operator

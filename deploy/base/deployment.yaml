@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hydra-operator
+  namespace: hydra-operator-system
+  labels:
+    app.kubernetes.io/name: hydra-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hydra-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hydra-operator
+    spec:
+      serviceAccountName: hydra-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hydra-operator
+          image: ghcr.io/ffurlanetto/hydra-operator:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # HYDRA_URL and HYDRA_CLUSTER_ID are required (config.Validate
+            # fails otherwise) — this base is not deployable as-is, an
+            # overlay must patch them. See deploy/overlays/example.
+            - name: HYDRA_URL
+              value: ""
+            - name: HYDRA_CLUSTER_ID
+              value: ""
+            # One-time registration token. optional: true so restarts after
+            # the operator has already persisted its own cluster token
+            # (internal/tokenstore) don't fail just because this Secret was
+            # cleaned up. Create it out-of-band, never commit the real
+            # value into an overlay:
+            #   kubectl create secret generic hydra-operator-registration \
+            #     -n hydra-operator-system --from-literal=token=<one-time-token>
+            - name: HYDRA_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hydra-operator-registration
+                  key: token
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

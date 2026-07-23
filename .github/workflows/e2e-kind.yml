@@ -1,0 +1,80 @@
+name: E2E (envtest + kind)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+jobs:
+  envtest:
+    name: envtest (real API server, no controllers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Install setup-envtest
+        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+      - name: Fetch kube-apiserver/etcd binaries
+        run: |
+          echo "KUBEBUILDER_ASSETS=$(setup-envtest use 1.31.0 -p path)" >> "$GITHUB_ENV"
+
+      # Not checked in — these change with every Knative release, see
+      # docs/testing/e2e.md for why "latest" is used instead of a pinned tag.
+      - name: Fetch Knative Serving CRDs
+        run: |
+          mkdir -p test/envtest/crds
+          curl -fsSL -o test/envtest/crds/serving-crds.yaml \
+            https://github.com/knative/serving/releases/latest/download/serving-crds.yaml
+
+      - name: Run envtest suite
+        run: go test -tags envtest ./test/envtest/... -v -timeout 5m
+
+  e2e-kind:
+    name: e2e (real kind cluster + Knative + Kourier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: hydra-e2e
+          wait: 120s
+
+      - name: Install Knative Serving + Kourier
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://github.com/knative/serving/releases/latest/download/serving-crds.yaml
+          kubectl wait --for=condition=Established --timeout=60s crd --all
+
+          kubectl apply -f https://github.com/knative/serving/releases/latest/download/serving-core.yaml
+          kubectl apply -f https://github.com/knative/net-kourier/releases/latest/download/kourier.yaml
+
+          kubectl patch configmap/config-network \
+            -n knative-serving \
+            --type merge \
+            -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+
+          kubectl -n knative-serving wait --for=condition=Available deployment --all --timeout=180s
+          kubectl -n kourier-system wait --for=condition=Available deployment --all --timeout=180s
+
+      - name: Export kubeconfig
+        run: kind get kubeconfig --name hydra-e2e > "${{ runner.temp }}/kubeconfig"
+
+      - name: Run e2e suite
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: go test -tags e2e ./test/e2e/... -v -timeout 20m

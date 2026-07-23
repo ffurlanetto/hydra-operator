@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Example overlay: copy this directory, adjust the patch below, and create
+# the registration Secret out-of-band (see ../../README.md) before applying.
+# Not a secretGenerator on purpose — that would either commit a placeholder
+# token to git or require plaintext in this file. The one-time registration
+# token is a real credential; it belongs in a Secret created imperatively
+# (or via your own sealed-secrets / external-secrets tooling), never here.
+
+namespace: hydra-operator-system
+
+resources:
+  - ../../base
+
+patches:
+  - path: patch-config.yaml
+    target:
+      kind: Deployment
+      name: hydra-operator

@@ -1,0 +1,43 @@
+# Default values for the hydra-operator chart.
+
+namespace:
+  # Set to false if hydra-operator-system already exists and is managed
+  # outside this chart (e.g. by a platform team's namespace bootstrap).
+  create: true
+  name: hydra-operator-system
+
+image:
+  repository: ghcr.io/ffurlanetto/hydra-operator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+hydra:
+  # Required — config.Validate() rejects an empty value at startup.
+  url: ""
+  # Required — the ClusterRef ID assigned when the registration token was
+  # generated in the Hydra UI.
+  clusterId: ""
+  # One-time registration token, only needed on first startup. Leave empty
+  # and create the Secret out-of-band instead (see README.md) rather than
+  # putting a real token in a values file that might get committed:
+  #   kubectl create secret generic hydra-operator-registration \
+  #     -n hydra-operator-system --from-literal=token=<one-time-token>
+  # Setting this value makes the chart create that Secret for you, which
+  # is convenient for `helm install --set` but keep it out of any
+  # values file you commit to git.
+  registrationToken: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceAccount:
+  name: hydra-operator
+
+tokenSecretName: hydra-operator-token

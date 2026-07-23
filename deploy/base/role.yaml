@@ -1,0 +1,22 @@
+# Namespace-scoped on purpose: internal/tokenstore only ever reads/writes
+# one Secret in the operator's own namespace. A ClusterRole here would grant
+# far more than the code needs — ClusterRoleBinding is reserved for
+# resources the operator genuinely manages across every tenant namespace
+# (see clusterrole.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hydra-operator
+  namespace: hydra-operator-system
+  labels:
+    app.kubernetes.io/name: hydra-operator
+rules:
+  # "create" can't be restricted by resourceName (the object doesn't exist
+  # yet at authorization time) — Kubernetes requires it as a separate rule.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["hydra-operator-token"]
+    verbs: ["get", "update"]

@@ -18,3 +18,12 @@ capabilities:
 
 metrics:
   port: 8080
+
+operator:
+  # Auto-detected from the in-cluster service account when running as a
+  # pod; only set this explicitly for local development.
+  namespace: ""
+  token_secret_name: "hydra-operator-token"
+  # Path to a kubeconfig file, used instead of the in-cluster config — for
+  # local development against kind/k3d/CRC only. Empty uses in-cluster config.
+  kubeconfig: ""
