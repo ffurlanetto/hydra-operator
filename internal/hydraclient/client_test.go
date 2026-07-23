@@ -90,8 +90,68 @@ func TestClient_GetDesiredState_DecodesFullPayload(t *testing.T) {
 	assert.Equal(t, "img:v1", container.Definition.Image)
 	assert.Equal(t, 2, container.RestartGeneration)
 	assert.True(t, container.NeedsOpenShiftRoute)
-	assert.Equal(t, []string{"app.example.com"}, container.CustomDomains)
+	assert.Equal(t, []hydraclient.CustomDomain{{Hostname: "app.example.com"}}, container.CustomDomains)
 	assert.Equal(t, []string{"registry.example.com"}, state.SecurityPolicy.AllowedRegistries)
+}
+
+func TestClient_GetDesiredState_CustomDomainsWithID_DecodesIDAndHostname(t *testing.T) {
+	// Covers the expected future Hydra payload shape once the domain-ID
+	// desired-state change lands: custom_domains as objects, not bare strings.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"revision": "sha256:abc",
+			"namespaces": [],
+			"containers": [{
+				"id":"agent-1","namespace_k8s_name":"prod",
+				"definition":{"image":"img:v1","cpu_limit":"500m","memory_limit":"512Mi"},
+				"scaling":{"min_scale":1,"max_scale":3},
+				"custom_domains":[{"id":"domain-1","hostname":"app.example.com"}]
+			}],
+			"security_policy":{}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := hydraclient.New(srv.URL, "cluster-1", 5*time.Second)
+	c.SetToken("jwt-abc")
+	state, err := c.GetDesiredState(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, state.Containers, 1)
+	require.Len(t, state.Containers[0].CustomDomains, 1)
+	assert.Equal(t, "domain-1", state.Containers[0].CustomDomains[0].ID)
+	assert.Equal(t, "app.example.com", state.Containers[0].CustomDomains[0].Hostname)
+}
+
+func TestClient_GetDesiredState_CustomDomainsMixedShapes_DecodesBoth(t *testing.T) {
+	// A cluster mid-rollout could plausibly see Hydra send a mix (or the
+	// operator could just be defensive about it either way): confirm bare
+	// strings and {"id","hostname"} objects decode side by side.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"revision": "sha256:abc",
+			"namespaces": [],
+			"containers": [{
+				"id":"agent-1","namespace_k8s_name":"prod",
+				"definition":{"image":"img:v1","cpu_limit":"500m","memory_limit":"512Mi"},
+				"scaling":{"min_scale":1,"max_scale":3},
+				"custom_domains":["legacy.example.com", {"id":"domain-2","hostname":"new.example.com"}]
+			}],
+			"security_policy":{}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := hydraclient.New(srv.URL, "cluster-1", 5*time.Second)
+	c.SetToken("jwt-abc")
+	state, err := c.GetDesiredState(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, state.Containers[0].CustomDomains, 2)
+	assert.Equal(t, hydraclient.CustomDomain{Hostname: "legacy.example.com"}, state.Containers[0].CustomDomains[0])
+	assert.Equal(t, hydraclient.CustomDomain{ID: "domain-2", Hostname: "new.example.com"}, state.Containers[0].CustomDomains[1])
 }
 
 func TestClient_PutAgentK8sStatus_SendsExpectedBody(t *testing.T) {

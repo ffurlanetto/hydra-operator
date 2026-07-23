@@ -38,12 +38,14 @@ type hydraStub struct {
 	clusterStatus []hydraclient.ClusterStatusRequest
 	nsStatus      map[string]hydraclient.NamespaceSyncStatusRequest
 	agentStatus   map[string]hydraclient.AgentK8sStatusRequest
+	domainStatus  map[string]hydraclient.DomainStatusRequest
 }
 
 func newHydraStub() *hydraStub {
 	return &hydraStub{
-		nsStatus:    map[string]hydraclient.NamespaceSyncStatusRequest{},
-		agentStatus: map[string]hydraclient.AgentK8sStatusRequest{},
+		nsStatus:     map[string]hydraclient.NamespaceSyncStatusRequest{},
+		agentStatus:  map[string]hydraclient.AgentK8sStatusRequest{},
+		domainStatus: map[string]hydraclient.DomainStatusRequest{},
 	}
 }
 
@@ -84,6 +86,14 @@ func (s *hydraStub) server(t *testing.T) *httptest.Server {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		s.mu.Lock()
 		s.agentStatus[r.PathValue("agentID")] = req
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("PUT /operator/domains/{domainID}/status", func(w http.ResponseWriter, r *http.Request) {
+		var req hydraclient.DomainStatusRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		s.mu.Lock()
+		s.domainStatus[r.PathValue("domainID")] = req
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -250,4 +260,64 @@ func TestManager_SyncOnce_NamespaceReconcileFails_ReportsErrorStatus(t *testing.
 
 	require.Len(t, stub.clusterStatus, 1)
 	assert.Equal(t, 0, stub.clusterStatus[0].NamespacesSynced)
+}
+
+func TestManager_SyncOnce_CustomDomainWithID_ReportsDomainStatus(t *testing.T) {
+	stub := newHydraStub()
+	stub.desiredState = hydraclient.DesiredState{
+		Containers: []hydraclient.Container{
+			{
+				ID:               "agent-1",
+				NamespaceK8sName: "prod",
+				Definition:       hydraclient.Definition{Image: "img:v1", CPULimit: "500m", MemoryLimit: "512Mi"},
+				RuntimeClassName: "kata-containers",
+				CustomDomains:    []hydraclient.CustomDomain{{ID: "domain-1", Hostname: "app.example.com"}},
+			},
+		},
+	}
+	m := newTestManager(t, stub)
+
+	m.SyncOnce(t.Context())
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	domainStatus, ok := stub.domainStatus["domain-1"]
+	require.True(t, ok, "expected a status callback for domain-1")
+	// Freshly created DomainMapping, fake Knative clientset never marks it Ready.
+	assert.Equal(t, "error", domainStatus.Status)
+	assert.NotEmpty(t, domainStatus.ErrorMessage)
+}
+
+func TestManager_SyncOnce_CustomDomainWithoutID_SkipsCallback(t *testing.T) {
+	// This is the graceful-degradation case: Hydra's desired-state payload
+	// carries a hostname but no domain ID (either an older Hydra API, or the
+	// hydra-side change that adds domain IDs hasn't landed yet). The manager
+	// must not error or crash — it just skips PUT /operator/domains/:id/status
+	// for that entry. hydraStub's catch-all handler fails the test if the
+	// manager calls out to any unregistered/unexpected endpoint, so a passing
+	// test here also proves no spurious HTTP call was made.
+	stub := newHydraStub()
+	stub.desiredState = hydraclient.DesiredState{
+		Containers: []hydraclient.Container{
+			{
+				ID:               "agent-1",
+				NamespaceK8sName: "prod",
+				Definition:       hydraclient.Definition{Image: "img:v1", CPULimit: "500m", MemoryLimit: "512Mi"},
+				RuntimeClassName: "kata-containers",
+				CustomDomains:    []hydraclient.CustomDomain{{Hostname: "app.example.com"}}, // no ID
+			},
+		},
+	}
+	m := newTestManager(t, stub)
+
+	assert.NotPanics(t, func() { m.SyncOnce(t.Context()) })
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	assert.Empty(t, stub.domainStatus, "no domain ID means no status callback should have been made")
+
+	// The rest of the sync still completed normally.
+	agentStatus, ok := stub.agentStatus["agent-1"]
+	require.True(t, ok)
+	assert.Equal(t, "deploying", agentStatus.Status)
 }

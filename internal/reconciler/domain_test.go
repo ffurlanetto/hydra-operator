@@ -11,6 +11,7 @@ import (
 	servingv1beta1 "knative.dev/serving/pkg/apis/serving/v1beta1"
 	knativefake "knative.dev/serving/pkg/client/clientset/versioned/fake"
 
+	"github.com/ffurlanetto/hydra-operator/internal/hydraclient"
 	"github.com/ffurlanetto/hydra-operator/internal/reconciler"
 )
 
@@ -28,10 +29,11 @@ func TestDomainReconciler_NewDomain_CreatesDomainMappingPointingAtService(t *tes
 	r := reconciler.NewDomainReconciler(client)
 
 	c := baseContainer()
-	c.CustomDomains = []string{"app.example.com"}
+	c.CustomDomains = []hydraclient.CustomDomain{{ID: "domain-1", Hostname: "app.example.com"}}
 	statuses := r.Reconcile(t.Context(), c)
 
 	require.Len(t, statuses, 1)
+	assert.Equal(t, "domain-1", statuses[0].ID)
 	assert.Equal(t, "app.example.com", statuses[0].Hostname)
 	// Freshly created, Knative's controller hasn't marked it Ready yet.
 	assert.Equal(t, "error", statuses[0].Status)
@@ -42,12 +44,29 @@ func TestDomainReconciler_NewDomain_CreatesDomainMappingPointingAtService(t *tes
 	assert.Equal(t, "Service", mapping.Spec.Ref.Kind)
 }
 
+func TestDomainReconciler_NewDomain_WithoutID_StatusHasEmptyID(t *testing.T) {
+	// Covers a hostname arriving with no domain ID at all — e.g. an older
+	// Hydra API that hasn't been updated to send one yet. The DomainMapping
+	// is still reconciled normally; only the returned DomainStatus.ID is
+	// empty, which is the manager's signal to skip the status callback.
+	client := knativefake.NewSimpleClientset()
+	r := reconciler.NewDomainReconciler(client)
+
+	c := baseContainer()
+	c.CustomDomains = []hydraclient.CustomDomain{{Hostname: "app.example.com"}}
+	statuses := r.Reconcile(t.Context(), c)
+
+	require.Len(t, statuses, 1)
+	assert.Empty(t, statuses[0].ID)
+	assert.Equal(t, "app.example.com", statuses[0].Hostname)
+}
+
 func TestDomainReconciler_ReadyDomainMapping_ReportsActive(t *testing.T) {
 	client := knativefake.NewSimpleClientset()
 	r := reconciler.NewDomainReconciler(client)
 
 	c := baseContainer()
-	c.CustomDomains = []string{"app.example.com"}
+	c.CustomDomains = []hydraclient.CustomDomain{{ID: "domain-1", Hostname: "app.example.com"}}
 	r.Reconcile(t.Context(), c)
 
 	mapping, err := client.ServingV1beta1().DomainMappings("prod").Get(t.Context(), "app.example.com", metav1.GetOptions{})
@@ -71,7 +90,10 @@ func TestDomainReconciler_MultipleHostnames_ReconciledIndependently(t *testing.T
 	r := reconciler.NewDomainReconciler(client)
 
 	c := baseContainer()
-	c.CustomDomains = []string{"app.example.com", "api.example.com"}
+	c.CustomDomains = []hydraclient.CustomDomain{
+		{ID: "domain-1", Hostname: "app.example.com"},
+		{ID: "domain-2", Hostname: "api.example.com"},
+	}
 	statuses := r.Reconcile(t.Context(), c)
 
 	require.Len(t, statuses, 2)

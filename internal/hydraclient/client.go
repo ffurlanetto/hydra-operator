@@ -167,18 +167,71 @@ type Traffic struct {
 	Percent      int    `json:"percent"`
 }
 
+// CustomDomain mirrors one entry of Hydra's desired-state
+// Container.CustomDomains (Epic 15, HYDRA-094).
+//
+// Expected shape from Hydra's API once the domain-ID follow-up lands:
+//
+//	{"id": "<custom_domain row UUID>", "hostname": "app.example.com"}
+//
+// ID is intentionally optional on the wire and may legitimately be absent or
+// empty:
+//   - an older (or not-yet-updated) Hydra API that only ever sent hostnames
+//   - a future Hydra API that, for some other reason, doesn't attach an ID
+//     to a given entry
+//
+// In both cases the operator must NOT crash or error — it simply skips the
+// PUT /operator/domains/:domainId/status callback for that entry (see
+// Manager.reportDomainStatuses in internal/reconciler/manager.go), since the
+// callback has no ID to address. This is a best-effort guess at the field
+// name Hydra's independent desired-state change will use; reconcile this
+// struct (and its JSON tags) against the actual hydra-side payload before/at
+// merge time if it differs.
+//
+// For backward compatibility with the current Hydra API — which serializes
+// custom_domains as a plain []string of bare hostnames — UnmarshalJSON also
+// accepts a bare JSON string as shorthand for {"hostname": <string>} with no
+// ID, so this client keeps decoding GetDesiredState correctly whether or not
+// the hydra-side change has landed yet.
+type CustomDomain struct {
+	ID       string `json:"id,omitempty"`
+	Hostname string `json:"hostname"`
+}
+
+// UnmarshalJSON accepts either a bare JSON string (the current Hydra API's
+// []string of hostnames) or a {"id":..., "hostname":...} object (the
+// expected future shape once Hydra starts sending domain IDs), so decoding
+// GetDesiredState never fails regardless of which side of that rollout the
+// two services are on.
+func (d *CustomDomain) UnmarshalJSON(data []byte) error {
+	var hostname string
+	if err := json.Unmarshal(data, &hostname); err == nil {
+		d.ID = ""
+		d.Hostname = hostname
+		return nil
+	}
+
+	type alias CustomDomain // avoid recursing back into this UnmarshalJSON
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return fmt.Errorf("hydraclient: unmarshal custom domain: %w", err)
+	}
+	*d = CustomDomain(a)
+	return nil
+}
+
 // Container mirrors Hydra's desiredStateContainer (the ServerlessContainer
 // facade over AgentDefinition+Agent, HYDRA-079).
 type Container struct {
-	ID                  string     `json:"id"`
-	NamespaceK8sName    string     `json:"namespace_k8s_name"`
-	Definition          Definition `json:"definition"`
-	Scaling             Scaling    `json:"scaling"`
-	Traffic             []Traffic  `json:"traffic"`
-	RestartGeneration   int        `json:"restart_generation"`
-	RuntimeClassName    string     `json:"runtime_class_name"`
-	CustomDomains       []string   `json:"custom_domains,omitempty"`
-	NeedsOpenShiftRoute bool       `json:"needs_openshift_route,omitempty"`
+	ID                  string         `json:"id"`
+	NamespaceK8sName    string         `json:"namespace_k8s_name"`
+	Definition          Definition     `json:"definition"`
+	Scaling             Scaling        `json:"scaling"`
+	Traffic             []Traffic      `json:"traffic"`
+	RestartGeneration   int            `json:"restart_generation"`
+	RuntimeClassName    string         `json:"runtime_class_name"`
+	CustomDomains       []CustomDomain `json:"custom_domains,omitempty"`
+	NeedsOpenShiftRoute bool           `json:"needs_openshift_route,omitempty"`
 }
 
 // SecurityPolicy mirrors Hydra's desiredStateSecurityPolicy.
