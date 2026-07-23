@@ -128,6 +128,13 @@ type EnvVar struct {
 	Name      string `json:"name"`
 	Value     string `json:"value,omitempty"`
 	SecretRef string `json:"secret_ref,omitempty"`
+	// SecretKey is the key within the SecretRef Secret to read this env var's
+	// value from. Optional: when empty, buildEnv falls back to using Name as
+	// the Secret key (the pre-existing behavior). Expected to be populated by
+	// Hydra's desired-state payload as "secret_key" once the corresponding
+	// Hydra-side field lands; absent until then, which this field's
+	// omitempty + fallback handles safely.
+	SecretKey string `json:"secret_key,omitempty"`
 }
 
 // PortSpec mirrors Hydra's domain.PortSpec.

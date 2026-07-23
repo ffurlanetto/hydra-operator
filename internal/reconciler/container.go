@@ -148,12 +148,17 @@ func buildEnv(env []hydraclient.EnvVar) []corev1.EnvVar {
 	for _, e := range env {
 		v := corev1.EnvVar{Name: e.Name}
 		if e.SecretRef != "" {
-			// Simplification (documented limitation, see docs/testing/e2e.md):
-			// looks up a Secret key matching the env var's own name.
+			// The Secret key defaults to the env var's own name, but callers
+			// may set SecretKey explicitly when the key inside the Secret
+			// differs from the env var name.
+			key := e.Name
+			if e.SecretKey != "" {
+				key = e.SecretKey
+			}
 			v.ValueFrom = &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: e.SecretRef},
-					Key:                  e.Name,
+					Key:                  key,
 				},
 			}
 		} else {

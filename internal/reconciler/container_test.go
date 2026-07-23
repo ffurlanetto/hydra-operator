@@ -112,3 +112,47 @@ func TestContainerReconciler_EnvWithSecretRef_MapsToSecretKeyRef(t *testing.T) {
 	assert.Equal(t, "agent-secrets", envs[1].ValueFrom.SecretKeyRef.Name)
 	assert.Equal(t, "SECRET_VAL", envs[1].ValueFrom.SecretKeyRef.Key)
 }
+
+func TestContainerReconciler_EnvWithExplicitSecretKey_UsesSecretKeyNotEnvName(t *testing.T) {
+	client := knativefake.NewSimpleClientset()
+	r := reconciler.NewContainerReconciler(client)
+
+	c := baseContainer()
+	c.Definition.Env = []hydraclient.EnvVar{
+		{Name: "SECRET_VAL", SecretRef: "agent-secrets", SecretKey: "actual-key-in-secret"},
+	}
+	_, err := r.Reconcile(t.Context(), c)
+	require.NoError(t, err)
+
+	name := reconciler.KsvcNameFor(c.ID)
+	svc, err := client.ServingV1().Services("prod").Get(t.Context(), name, metav1.GetOptions{})
+	require.NoError(t, err)
+	envs := svc.Spec.Template.Spec.Containers[0].Env
+	require.Len(t, envs, 1)
+	require.NotNil(t, envs[0].ValueFrom)
+	require.NotNil(t, envs[0].ValueFrom.SecretKeyRef)
+	assert.Equal(t, "agent-secrets", envs[0].ValueFrom.SecretKeyRef.Name)
+	assert.Equal(t, "actual-key-in-secret", envs[0].ValueFrom.SecretKeyRef.Key)
+}
+
+func TestContainerReconciler_EnvWithSecretRefAndNoSecretKey_FallsBackToEnvName(t *testing.T) {
+	client := knativefake.NewSimpleClientset()
+	r := reconciler.NewContainerReconciler(client)
+
+	c := baseContainer()
+	c.Definition.Env = []hydraclient.EnvVar{
+		{Name: "SECRET_VAL", SecretRef: "agent-secrets"},
+	}
+	_, err := r.Reconcile(t.Context(), c)
+	require.NoError(t, err)
+
+	name := reconciler.KsvcNameFor(c.ID)
+	svc, err := client.ServingV1().Services("prod").Get(t.Context(), name, metav1.GetOptions{})
+	require.NoError(t, err)
+	envs := svc.Spec.Template.Spec.Containers[0].Env
+	require.Len(t, envs, 1)
+	require.NotNil(t, envs[0].ValueFrom)
+	require.NotNil(t, envs[0].ValueFrom.SecretKeyRef)
+	assert.Equal(t, "agent-secrets", envs[0].ValueFrom.SecretKeyRef.Name)
+	assert.Equal(t, "SECRET_VAL", envs[0].ValueFrom.SecretKeyRef.Key)
+}
