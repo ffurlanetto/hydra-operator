@@ -4,8 +4,11 @@
 #
 # Two independent legs, run in sequence:
 #   1. kind (or k3d, if you already have it and not kind) + Knative Serving
-#      + Kourier — the same lifecycle scenarios .github/workflows/e2e-kind.yml
-#      runs in CI (deploy/rollout/canary/rollback, quota enforcement).
+#      + Kourier + OPA Gatekeeper — the same lifecycle scenarios
+#      .github/workflows/e2e-kind.yml runs in CI (deploy/rollout/canary/
+#      rollback, quota enforcement, and PolicyReconciler's ConstraintTemplates/
+#      Constraints rejecting real violating Pods via Gatekeeper's admission
+#      webhook).
 #   2. OpenShift Local (CRC), only if `crc status` finds a running instance —
 #      exercises the real OpenShift Route reconciler. This can never run in
 #      CI or in any sandboxed/virtualized-nested environment (CRC needs a
@@ -21,6 +24,13 @@ CLUSTER_NAME="${HYDRA_E2E_CLUSTER_NAME:-hydra-e2e-local}"
 KNATIVE_SERVING_CRDS_URL="https://github.com/knative/serving/releases/latest/download/serving-crds.yaml"
 KNATIVE_SERVING_CORE_URL="https://github.com/knative/serving/releases/latest/download/serving-core.yaml"
 KOURIER_URL="https://github.com/knative/net-kourier/releases/latest/download/kourier.yaml"
+# Pinned (not "latest") since this manifest is applied on every e2e run and
+# PolicyReconciler's Rego bodies are asserted against its exact admission
+# behavior — floating here would make a real Gatekeeper release the thing
+# that silently breaks the policy e2e leg. Bump deliberately alongside
+# .github/workflows/e2e-kind.yml's copy of the same URL.
+GATEKEEPER_VERSION="v3.23.0"
+GATEKEEPER_URL="https://raw.githubusercontent.com/open-policy-agent/gatekeeper/${GATEKEEPER_VERSION}/deploy/gatekeeper.yaml"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 die() { printf '\033[1;31merror: %s\033[0m\n' "$1" >&2; exit 1; }
@@ -64,6 +74,34 @@ select_container_runtime() {
   die "need a running container runtime: install docker, or podman with a started machine ('podman machine start')"
 }
 
+# install_gatekeeper installs OPA Gatekeeper (a pinned release, see
+# GATEKEEPER_URL above) so the policy e2e leg
+# (TestE2E_PolicyReconciler_RealGatekeeper_RejectsViolatingPods) can apply
+# PolicyReconciler's real ConstraintTemplates/Constraints and have them
+# evaluated by a real admission webhook, not just persisted as objects the
+# way the fake-clientset unit tests in internal/reconciler/policy_test.go do.
+install_gatekeeper() {
+  log "installing OPA Gatekeeper ${GATEKEEPER_VERSION}"
+  kubectl apply -f "$GATEKEEPER_URL"
+  kubectl wait --for=condition=Established --timeout=60s crd --all
+  kubectl -n gatekeeper-system wait --for=condition=Available deployment --all --timeout=180s
+
+  # The controller-manager Deployment being Available doesn't mean the
+  # validating webhook's self-signed CA has been generated and patched into
+  # the ValidatingWebhookConfiguration yet — that happens a few seconds after
+  # the pod starts. Poll for a non-empty caBundle instead of a fixed sleep;
+  # the e2e test itself also retries PolicyReconciler.Reconcile and the
+  # subsequent pod-admission checks, so this is a best-effort head start
+  # rather than a hard requirement.
+  log "waiting for Gatekeeper's validating webhook CA bundle to be provisioned"
+  local deadline=$((SECONDS + 120))
+  until [[ -n "$(kubectl get validatingwebhookconfiguration gatekeeper-validating-webhook-configuration \
+        -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]]; do
+    [[ $SECONDS -lt $deadline ]] || { log "gatekeeper webhook CA bundle not observed within 2m — continuing anyway, the e2e test retries"; break; }
+    sleep 3
+  done
+}
+
 run_kind_leg() {
   require_cmd kubectl
   require_cmd go
@@ -91,6 +129,8 @@ run_kind_leg() {
     -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
   kubectl -n knative-serving wait --for=condition=Available deployment --all --timeout=180s
   kubectl -n kourier-system wait --for=condition=Available deployment --all --timeout=180s
+
+  install_gatekeeper
 
   log "running e2e suite against kind (KUBECONFIG=$kubeconfig)"
   (cd "$REPO_ROOT" && go test -tags e2e ./test/e2e/... -v -timeout 20m)
