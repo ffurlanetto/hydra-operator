@@ -132,7 +132,10 @@ To get it manually:
 
 ## Known gaps (documented, not silently worked around)
 
-- **envtest does not cover the OpenShift Route CRD** — see tier 2 above.
+- ~~envtest does not cover the OpenShift Route CRD~~ **Resolved**: `make test-envtest` now
+  fetches the Route CRD from `github.com/openshift/api` (pinned to the commit this repo's
+  `go.mod` already requires) and `test/envtest/reconciler_test.go` exercises the Route
+  reconciler against a real apiserver, including real CRD schema validation.
 - ~~**Env var secrets** (`internal/reconciler/container.go`'s `buildEnv`) assume a Secret
   key matching the env var's own name~~ — resolved: `hydraclient.EnvVar` now has an
   optional `SecretKey` field (`secret_key` in JSON). When set, `buildEnv` uses it as the
