@@ -297,7 +297,9 @@ hydra-operator/
 
 **Merge** : PR avec review obligatoire · squash merge sur main
 
-**Push & PR automatique** : Toute branche créée pendant une session de développement doit être poussée systématiquement (`git push -u origin <branche>`) — jamais de travail qui reste uniquement local. Dès le premier push d'une branche, une **pull request en draft** doit être créée automatiquement vers `main` (ou la branche cible appropriée), même si le travail n'est pas terminé — elle peut être marquée "ready for review" une fois complète, sur demande explicite.
+**Push & PR automatique** : Toute branche créée pendant une session de développement doit être poussée systématiquement (`git push -u origin <branche>`) — jamais de travail qui reste uniquement local. Dès le premier push d'une branche, une **pull request en draft** doit être créée automatiquement vers `main` (ou la branche cible appropriée), même si le travail n'est pas terminé.
+
+**PR prête automatiquement** : Dès qu'un développement est terminé (tests + lint + build + CI verte, critères d'acceptation du plan remplis), la PR correspondante doit être marquée "ready for review" automatiquement — sans attendre une demande explicite. Une PR en draft alors que le travail est fini est une anomalie à corriger, pas un état d'attente normal.
 
 **Environnements** : ce dépôt ne déploie rien lui-même — il produit un binaire/image que les clusters cibles installent (Helm ou Kustomize, voir `deploy/README.md`). Pas d'environnement `staging`/`production` propre à ce dépôt.
 
