@@ -1,6 +1,6 @@
 # Testing hydra-operator against real clusters
 
-hydra-operator's tests run in three tiers, each trading realism for speed/
+hydra-operator's tests run in four tiers, each trading realism for speed/
 portability. Pick the narrowest tier that answers your question — don't
 reach for kind to check a struct mapping the unit tests already cover.
 
@@ -129,6 +129,88 @@ To get it manually:
 2. `crc start` (needs a machine with virtualization enabled)
 3. `./scripts/e2e-local.sh` (it detects CRC automatically), or directly:
    `KUBECONFIG=$(crc oc-env | grep -o '/[^"]*kubeconfig[^"]*') go test -tags e2e ./test/e2e/... -run TestE2E_RouteReconciler_OnOpenShift -v`
+
+## 4. hydra integration e2e (`make e2e-hydra-integration`, real `hydra` + real `hydra-operator`, CI + local only)
+
+Tiers 1–3 all stop at hydra-operator's own boundary — `test/e2e/` builds
+`hydraclient.Container`/`hydraclient.Namespace` structs directly in Go and
+feeds them to the reconcilers. None of that proves the *other* half of
+ADR-024/025 actually works: a real `hydra` binary serving
+`GET /operator/clusters/:id/desired-state`, a real `hydra-operator` process
+polling it, reconciling a real Knative `Service`, and reporting back via
+`PUT /operator/namespaces/:id/sync-status` / `PUT /operator/agents/:id/k8s-status`.
+Hydra's own Playwright suite (`web/e2e/`) covers the UI/API side of this
+same boundary, but simulates the operator with `web/e2e/fakeOperator.ts` —
+deliberately, since that suite doesn't need a Kubernetes cluster to test
+Hydra's business logic. This tier is the one place both halves run for
+real, simultaneously.
+
+```sh
+make e2e-hydra-integration
+# or directly:
+HYDRA_REPO_PATH=../hydra ./scripts/e2e-hydra-integration.sh
+```
+
+What it does: builds a real `hydra` binary (from `$HYDRA_REPO_PATH`, or a
+fresh shallow clone of `github.com/ffurlanetto/hydra` if unset), stands up
+kind + Knative Serving + Kourier (same as tier 3's local leg), builds and
+starts `hydra-operator` pointed at both, then drives everything through
+Hydra's real HTTP API: login as the bootstrap admin, create an org, a
+`ClusterRef`, a registration token, a project, a namespace, an agent
+definition, and finally an agent — then polls Hydra (never Kubernetes
+directly) until the namespace reports `synced` and the agent reports
+`running`, proving the full round trip actually happened.
+
+**The `kata-containers` RuntimeClass shim.** Hydra's desired-state API always
+sets `runtime_class_name: kata-containers` on every container (ADR-026: Kata
+isolation, no exceptions in production). A bare kind or CI node has no real
+Kata runtime installed, so without a matching `RuntimeClass` object the pod
+would be rejected outright at admission — no amount of waiting would make
+the agent go `running`. The script applies a `RuntimeClass` named
+`kata-containers` whose `handler` is the node's ordinary `runc` — enough to
+satisfy the reference so the reconciliation loop can be observed end to end.
+This is a **test-only shim**, not a claim that Kata isolation is being
+exercised; production clusters must still run real Kata Containers.
+
+Both legs are wired into CI (`.github/workflows/e2e-kind.yml`'s
+`e2e-hydra-integration` job, which checks out both repos) and into
+`make e2e-hydra-integration` locally.
+
+### Not verified inside this repo's own sandboxed dev container
+
+Like tier 3, this script cannot be run to completion inside the sandbox this
+repo's day-to-day development happens in — for a stack of reasons, each
+confirmed by actually attempting it, not assumed:
+
+- **`kind`** fails outright here: its nested `kubeadm` bootstrap never
+  completes on this sandbox's cgroup v1, no-systemd host.
+- **Bare K3s** (a plain process, sidestepping kind's Docker-in-Docker
+  problem) gets a `Ready` control plane, but every pod fails identically at
+  `runc create failed: unable to start container process: can't get final
+  child's PID from pipe: EOF` — a non-reproducible race in K3s's bundled
+  `runc`, not fixable by a version swap (confirmed: swapping in the host's
+  newer `runc` appeared to fix it once, then failed 0/5 times on a clean
+  restart with the identical binary). See the investigation recorded
+  alongside this line for the full detail.
+- **`k3d`** (k3s-in-Docker — a different architecture again, avoiding K3s's
+  bundled `runc` by running the node itself as a Docker container) was also
+  tried, for real, in response to the same question this section exists to
+  answer for the next person who asks it: it fails for a *third*, unrelated
+  reason in this specific sandbox — `k3d`'s own bootstrap needs to pull
+  `ghcr.io/k3d-io/k3d-tools` and `ghcr.io/k3d-io/k3d-proxy`, and this
+  sandbox's egress policy blocks `ghcr.io` image pulls (as it already blocks
+  `docker.io` direct pulls, worked around elsewhere via `mirror.gcr.io` —
+  but no such mirror was substitutable for k3d's own bootstrap images).
+  Cluster creation hangs indefinitely retrying the pull; the `k3s` node
+  container itself never leaves `Created`.
+
+None of this is a property of `kind`/K3s/k3d themselves — it's specific to
+this one sandboxed container's kernel (cgroup v1, no systemd, no nested
+virtualization) and egress allowlist. GitHub Actions runners and an
+ordinary laptop have neither restriction, which is exactly why this tier
+exists as a real, runnable script rather than something hand-verified once
+and hoped to keep working — its first trustworthy run is in CI or on your
+own machine, not here.
 
 ## Known gaps (documented, not silently worked around)
 

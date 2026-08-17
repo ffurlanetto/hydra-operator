@@ -11,7 +11,7 @@ LDFLAGS    := -s -w \
 
 ENVTEST_K8S_VERSION := 1.31.0
 
-.PHONY: all build test lint docker helm-lint helm-template deploy-validate rbac-drift-check run clean tidy test-envtest test-e2e e2e-local
+.PHONY: all build test lint docker helm-lint helm-template deploy-validate rbac-drift-check run clean tidy test-envtest test-e2e e2e-local e2e-hydra-integration
 
 all: build
 
@@ -49,6 +49,14 @@ test-e2e:
 ## e2e-local: Stand up a local kind cluster (+ CRC if present) and run test-e2e against it.
 e2e-local:
 	./scripts/e2e-local.sh
+
+## e2e-hydra-integration: Real hydra + real hydra-operator + real kind cluster,
+## driven purely through Hydra's HTTP API (replaces fakeOperator.ts with the
+## real operator process). See scripts/e2e-hydra-integration.sh and
+## docs/testing/e2e.md tier 4. Set HYDRA_REPO_PATH to reuse an existing
+## ffurlanetto/hydra checkout (default: clones a sibling ../hydra).
+e2e-hydra-integration:
+	./scripts/e2e-hydra-integration.sh
 
 ## docker: Build multi-platform Docker image locally (requires buildx).
 docker:

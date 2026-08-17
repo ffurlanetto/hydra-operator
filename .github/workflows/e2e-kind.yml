@@ -113,3 +113,38 @@ jobs:
         env:
           KUBECONFIG: ${{ runner.temp }}/kubeconfig
         run: go test -tags e2e ./test/e2e/... -v -timeout 20m
+
+  e2e-hydra-integration:
+    name: e2e (real hydra + real hydra-operator, full loop)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hydra-operator
+        uses: actions/checkout@v4
+        with:
+          path: hydra-operator
+
+      - name: Checkout hydra
+        uses: actions/checkout@v4
+        with:
+          repository: ffurlanetto/hydra
+          path: hydra
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: |
+            hydra-operator/go.sum
+            hydra/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hydra/web/package-lock.json
+
+      - name: Run the real hydra <-> hydra-operator integration script
+        working-directory: hydra-operator
+        env:
+          HYDRA_REPO_PATH: ${{ github.workspace }}/hydra
+        run: ./scripts/e2e-hydra-integration.sh
