@@ -209,9 +209,16 @@ api_setup() {
   NAMESPACE_ID="$(curl -sSf -X POST "$HYDRA_BASE_URL/api/v1/orgs/$ORG_ID/projects/$PROJECT_ID/namespaces/" "${AUTH[@]}" \
     -d "{\"name\":\"integration-ns\",\"k8s_namespace\":\"integration-ns\",\"cluster_id\":\"$CLUSTER_ID\"}" | jq -r .id)"
 
+  # gcr.io/google-samples/hello-app listens on 8080 by default — Knative's
+  # queue-proxy assumes port 8080 unless the definition declares otherwise,
+  # and nginx (tried first) listens on 80, so queue-proxy's readiness probe
+  # against the user container never connected and the Pod never went Ready.
+  # Pulled directly from gcr.io (not mirror.gcr.io — that mirror is
+  # docker.io-only, and gcr.io itself isn't subject to the same egress
+  # restriction this repo's own sandbox hits on docker.io).
   log "creating agent definition"
   DEFINITION_ID="$(curl -sSf -X POST "$HYDRA_BASE_URL/api/v1/orgs/$ORG_ID/projects/$PROJECT_ID/definitions/" "${AUTH[@]}" \
-    -d '{"name":"integration-def","image":"mirror.gcr.io/library/nginx:latest","mode":"serverless","cpu_limit":"500m","memory_limit":"512Mi","health_check_path":"/"}' \
+    -d '{"name":"integration-def","image":"gcr.io/google-samples/hello-app:1.0","mode":"serverless","cpu_limit":"500m","memory_limit":"512Mi","health_check_path":"/"}' \
     | jq -r .id)"
 }
 
