@@ -103,6 +103,7 @@ Exemples :
 - **Nommage** : `[Sujet]_[Scénario]_[RésultatAttendu]`
 - **Un test = un comportement** — pas de tests multi-assertions non liées
 - **Tests déterministes** — pas de `time.Now()` non mockable, pas de random non seedé
+- **CI GitHub Actions toujours verte** : après chaque push, vérifier le statut des jobs — tout job rouge doit être diagnostiqué et corrigé avant de considérer la tâche terminée, jamais ignoré, laissé en l'état, ou signalé comme "à corriger plus tard" sans action
 
 ---
 
