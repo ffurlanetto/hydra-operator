@@ -129,6 +129,15 @@ setup_cluster() {
   kubectl apply -f "$KOURIER_URL"
   kubectl patch configmap/config-network -n knative-serving --type merge \
     -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+  # Knative's own admission webhook rejects spec.template.spec.runtimeClassName
+  # outright unless this feature flag is explicitly enabled — off by default.
+  # Since Hydra's desired-state API always sets runtime_class_name (ADR-026,
+  # no exceptions), this isn't test-only like the RuntimeClass object below:
+  # every real production cluster needs this same flag enabled, or every
+  # single agent deploy fails identically with "must not set the field(s):
+  # spec.template.spec.runtimeClassName" — see deploy/README.md.
+  kubectl patch configmap/config-features -n knative-serving --type merge \
+    -p '{"data":{"kubernetes.podspec-runtimeclassname":"enabled"}}'
   kubectl -n knative-serving wait --for=condition=Available deployment --all --timeout=180s
   kubectl -n kourier-system wait --for=condition=Available deployment --all --timeout=180s
 
