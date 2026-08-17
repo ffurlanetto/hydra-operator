@@ -74,9 +74,46 @@ via the same manifests documented at
 [knative.dev/docs/install](https://knative.dev/docs/install/), and runs
 `go test -tags e2e ./test/e2e/...` against it. This is the **real**
 verification surface for `test/e2e/` and `test/envtest/` — this repo's own
-sandboxed development environment cannot pull container images or run a VM,
-so those two tiers only get their first real run in CI, not during
-day-to-day local iteration by whoever wrote them.
+sandboxed development environment cannot reliably run actual Kubernetes
+workload pods (see below), so those two tiers only get their first
+trustworthy real run in CI, not during day-to-day local iteration by
+whoever wrote them.
+
+### Why not locally, in detail (investigated for real hydra-operator + K3s integration testing, not just assumed)
+
+Two attempts, both dead ends, for different reasons — recorded so a future
+session doesn't re-spend the time:
+
+- **`kind`**: fails outright. Its nested `kubeadm` control-plane bootstrap,
+  running inside Docker-in-Docker on a cgroup v1 host with no systemd, never
+  completes (`could not initialize a Kubernetes cluster`, control plane wait
+  phase times out). This is the well-known kind-in-restricted-sandbox
+  failure mode.
+- **K3s** (a plain process, not nested in Docker — sidesteps the kind
+  failure above): the control plane itself comes up fine and reports
+  `Ready` in under a minute. Image pulls also work, once containerd is
+  pointed at a registry mirror instead of Docker Hub directly (blocked by
+  this class of sandbox's egress policy) via
+  `/etc/rancher/k3s/registries.yaml`. But **every actual pod**, not just
+  Knative-specific ones — CoreDNS, Traefik's helm-install job, all of
+  them — fails identically at the lowest level:
+  `OCI runtime create failed: runc create failed: unable to start
+  container process: can't get final child's PID from pipe: EOF`. CNI
+  networking (veth pair setup) succeeds; only the container process itself
+  never starts. Swapping K3s's bundled `runc` (1.2.1) for the system's
+  newer one (1.3.4, confirmed working via `docker run --privileged`)
+  appeared to fix it once — all 5 Knative pods eventually went `Ready`
+  after several minutes of kubelet retries — but the fix did **not**
+  reproduce on a clean K3s restart with the identical binary: 0/5 pods
+  succeeded over ~14 consecutive checks (dozens of failed attempts) with
+  load average near zero and 14Gi of memory free, ruling out resource
+  contention. Conclusion: the one success was very likely a race-condition
+  fluke in `runc`'s low-level pipe handshake, not a real fix — not
+  reliable enough to build a test tier on.
+- Not investigated further: `--docker` (cri-dockerd, since plain
+  `docker run` reliably works here) was identified as the next thing to try
+  but wasn't attempted — flagging it here in case a future session has
+  reason to pick this back up.
 
 ### Locally: `scripts/e2e-local.sh`
 
