@@ -176,6 +176,15 @@ Both legs are wired into CI (`.github/workflows/e2e-kind.yml`'s
 `e2e-hydra-integration` job, which checks out both repos) and into
 `make e2e-hydra-integration` locally.
 
+**Required CI secret**: `ffurlanetto/hydra` is a private repo, so the
+`e2e-hydra-integration` job's checkout of it needs a token with read access —
+the default `GITHUB_TOKEN` is always scoped to the repo the workflow runs
+in only, even across two repos owned by the same account. Add a
+fine-grained PAT (`contents: read` on `ffurlanetto/hydra`) as this repo's
+`HYDRA_REPO_TOKEN` secret (Settings → Secrets and variables → Actions).
+Without it, this one job fails at the "Checkout hydra" step with a
+misleading `Not Found` — every other job is unaffected.
+
 ### Not verified inside this repo's own sandboxed dev container
 
 Like tier 3, this script cannot be run to completion inside the sandbox this
