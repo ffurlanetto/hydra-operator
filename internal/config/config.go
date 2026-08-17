@@ -83,6 +83,9 @@ func Load(path string) (*Config, error) {
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
+	v.SetDefault("hydra.url", "")
+	v.SetDefault("hydra.cluster_id", "")
+	v.SetDefault("hydra.registration_token", "")
 	v.SetDefault("hydra.http_timeout", "30s")
 	v.SetDefault("reconciler.sync_interval", "30s")
 	v.SetDefault("reconciler.heartbeat_interval", "30s")
@@ -96,6 +99,28 @@ func Load(path string) (*Config, error) {
 	v.SetEnvPrefix("HYDRA")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	// viper's AutomaticEnv() derives an env var name by joining the prefix
+	// and the dotted key ("HYDRA" + "_" + "HYDRA_URL" for key "hydra.url"),
+	// so every key under the "hydra" section collides with its own prefix
+	// and would only ever bind from HYDRA_HYDRA_URL, not the documented
+	// HYDRA_URL — confirmed the hard way: HYDRA_URL/HYDRA_CLUSTER_ID/
+	// HYDRA_REGISTRATION_TOKEN, exactly what deploy/base and helm/ set, were
+	// silently never read, so the operator always failed its own config
+	// validation even when correctly configured. Bind these explicitly to
+	// the env var names deploy/base, helm/, and the README already document.
+	if err := v.BindEnv("hydra.url", "HYDRA_URL"); err != nil {
+		return nil, fmt.Errorf("binding HYDRA_URL: %w", err)
+	}
+	if err := v.BindEnv("hydra.cluster_id", "HYDRA_CLUSTER_ID"); err != nil {
+		return nil, fmt.Errorf("binding HYDRA_CLUSTER_ID: %w", err)
+	}
+	if err := v.BindEnv("hydra.registration_token", "HYDRA_REGISTRATION_TOKEN"); err != nil {
+		return nil, fmt.Errorf("binding HYDRA_REGISTRATION_TOKEN: %w", err)
+	}
+	if err := v.BindEnv("hydra.http_timeout", "HYDRA_HTTP_TIMEOUT"); err != nil {
+		return nil, fmt.Errorf("binding HYDRA_HTTP_TIMEOUT: %w", err)
+	}
 
 	if path != "" {
 		v.SetConfigFile(path)
