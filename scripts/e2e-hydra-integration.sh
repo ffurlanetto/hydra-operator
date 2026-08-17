@@ -236,6 +236,26 @@ start_operator() {
 # operator instance owns to flip to synced — proof the operator really
 # reconciled a namespace object and really called back
 # PUT /operator/namespaces/:id/sync-status, not a simulation.
+# dump_cluster_state prints the real Kubernetes-side state (not just
+# Hydra's view of it) so a failed run's logs actually show why, instead of
+# just "it never got there" — Knative Service/Revision conditions, Pod
+# status/events, and each Pod's container logs.
+dump_cluster_state() {
+  log "dumping cluster state for diagnosis (namespace: integration-ns)"
+  kubectl get ksvc,revision,pod -n integration-ns -o wide 2>&1 || true
+  echo "--- ksvc/revision describe ---"
+  kubectl describe ksvc,revision -n integration-ns 2>&1 || true
+  echo "--- pod describe ---"
+  kubectl describe pod -n integration-ns 2>&1 || true
+  echo "--- pod logs (all containers) ---"
+  for pod in $(kubectl get pod -n integration-ns -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    echo "-- $pod --"
+    kubectl logs -n integration-ns "$pod" --all-containers --prefix --tail=100 2>&1 || true
+  done
+  echo "--- recent namespace events ---"
+  kubectl get events -n integration-ns --sort-by=.lastTimestamp 2>&1 || true
+}
+
 wait_namespace_synced() {
   log "waiting for hydra-operator to report the namespace synced"
   for i in $(seq 1 60); do
@@ -244,6 +264,7 @@ wait_namespace_synced() {
     sleep 5
   done
   cat "$WORKDIR/hydra-operator.log" >&2
+  dump_cluster_state
   die "namespace never reported synced"
 }
 
@@ -254,6 +275,7 @@ create_agent_and_wait_running() {
     | jq -r .id)"
 
   log "waiting for hydra-operator to reconcile the agent to running (real Knative Service)"
+  local status=""
   for i in $(seq 1 60); do
     status="$(curl -sSf "$HYDRA_BASE_URL/api/v1/agents/$AGENT_ID" "${AUTH[@]}" | jq -r .status)"
     if [[ "$status" == "running" ]]; then
@@ -262,11 +284,14 @@ create_agent_and_wait_running() {
     fi
     if [[ "$status" == "failed" ]]; then
       cat "$WORKDIR/hydra-operator.log" >&2
+      dump_cluster_state
       die "agent reconciliation reported failed"
     fi
     sleep 5
   done
+  log "last known agent status: $status"
   cat "$WORKDIR/hydra-operator.log" >&2
+  dump_cluster_state
   die "agent never reached running"
 }
 
