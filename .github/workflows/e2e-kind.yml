@@ -123,10 +123,20 @@ jobs:
         with:
           path: hydra-operator
 
+      # ffurlanetto/hydra is a private repo, so this cross-repo checkout
+      # needs a token with read access to it — the default GITHUB_TOKEN is
+      # always scoped to the repo the workflow runs in only (hydra-operator)
+      # and cannot see a different repo, even one owned by the same account.
+      # Requires a fine-grained PAT (contents: read on ffurlanetto/hydra)
+      # stored as the HYDRA_REPO_TOKEN secret on this repo. ref: main is set
+      # explicitly so checkout doesn't need an extra API call just to look
+      # up the default branch.
       - name: Checkout hydra
         uses: actions/checkout@v4
         with:
           repository: ffurlanetto/hydra
+          ref: main
+          token: ${{ secrets.HYDRA_REPO_TOKEN }}
           path: hydra
 
       - uses: actions/setup-go@v5
