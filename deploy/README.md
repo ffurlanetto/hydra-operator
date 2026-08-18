@@ -10,6 +10,23 @@ target cluster.** The operator detects this at startup
 (`internal/capabilities`) and refuses to start if Knative isn't present —
 it does not install Knative for you.
 
+**Required Knative feature flag**: Hydra's desired-state API always sets
+`runtime_class_name` on every container (ADR-026: Kata Containers isolation,
+no exceptions). Knative's own admission webhook rejects
+`spec.template.spec.runtimeClassName` outright unless the
+`kubernetes.podspec-runtimeclassname` feature flag is explicitly enabled —
+it's off by default. Without it, **every agent deploy fails identically**
+with `admission webhook "validation.webhook.serving.knative.dev" denied the
+request: validation failed: must not set the field(s):
+spec.template.spec.runtimeClassName` — found the hard way by the first real
+end-to-end run of `scripts/e2e-hydra-integration.sh` against a freshly
+installed cluster. Enable it before deploying any agent:
+
+```sh
+kubectl patch configmap/config-features -n knative-serving --type merge \
+  -p '{"data":{"kubernetes.podspec-runtimeclassname":"enabled"}}'
+```
+
 Optional, auto-detected (never installed by the operator):
 - Kourier or another Knative networking layer, or OpenShift Routes as a
   fallback
