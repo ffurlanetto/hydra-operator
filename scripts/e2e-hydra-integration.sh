@@ -129,6 +129,15 @@ setup_cluster() {
   kubectl apply -f "$KOURIER_URL"
   kubectl patch configmap/config-network -n knative-serving --type merge \
     -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+  # Knative's own admission webhook rejects spec.template.spec.runtimeClassName
+  # outright unless this feature flag is explicitly enabled — off by default.
+  # Since Hydra's desired-state API always sets runtime_class_name (ADR-026,
+  # no exceptions), this isn't test-only like the RuntimeClass object below:
+  # every real production cluster needs this same flag enabled, or every
+  # single agent deploy fails identically with "must not set the field(s):
+  # spec.template.spec.runtimeClassName" — see deploy/README.md.
+  kubectl patch configmap/config-features -n knative-serving --type merge \
+    -p '{"data":{"kubernetes.podspec-runtimeclassname":"enabled"}}'
   kubectl -n knative-serving wait --for=condition=Available deployment --all --timeout=180s
   kubectl -n kourier-system wait --for=condition=Available deployment --all --timeout=180s
 
@@ -200,9 +209,16 @@ api_setup() {
   NAMESPACE_ID="$(curl -sSf -X POST "$HYDRA_BASE_URL/api/v1/orgs/$ORG_ID/projects/$PROJECT_ID/namespaces/" "${AUTH[@]}" \
     -d "{\"name\":\"integration-ns\",\"k8s_namespace\":\"integration-ns\",\"cluster_id\":\"$CLUSTER_ID\"}" | jq -r .id)"
 
+  # gcr.io/google-samples/hello-app listens on 8080 by default — Knative's
+  # queue-proxy assumes port 8080 unless the definition declares otherwise,
+  # and nginx (tried first) listens on 80, so queue-proxy's readiness probe
+  # against the user container never connected and the Pod never went Ready.
+  # Pulled directly from gcr.io (not mirror.gcr.io — that mirror is
+  # docker.io-only, and gcr.io itself isn't subject to the same egress
+  # restriction this repo's own sandbox hits on docker.io).
   log "creating agent definition"
   DEFINITION_ID="$(curl -sSf -X POST "$HYDRA_BASE_URL/api/v1/orgs/$ORG_ID/projects/$PROJECT_ID/definitions/" "${AUTH[@]}" \
-    -d '{"name":"integration-def","image":"mirror.gcr.io/library/nginx:latest","mode":"serverless","cpu_limit":"500m","memory_limit":"512Mi","health_check_path":"/"}' \
+    -d '{"name":"integration-def","image":"gcr.io/google-samples/hello-app:1.0","mode":"serverless","cpu_limit":"500m","memory_limit":"512Mi","health_check_path":"/"}' \
     | jq -r .id)"
 }
 
@@ -227,6 +243,26 @@ start_operator() {
 # operator instance owns to flip to synced — proof the operator really
 # reconciled a namespace object and really called back
 # PUT /operator/namespaces/:id/sync-status, not a simulation.
+# dump_cluster_state prints the real Kubernetes-side state (not just
+# Hydra's view of it) so a failed run's logs actually show why, instead of
+# just "it never got there" — Knative Service/Revision conditions, Pod
+# status/events, and each Pod's container logs.
+dump_cluster_state() {
+  log "dumping cluster state for diagnosis (namespace: integration-ns)"
+  kubectl get ksvc,revision,pod -n integration-ns -o wide 2>&1 || true
+  echo "--- ksvc/revision describe ---"
+  kubectl describe ksvc,revision -n integration-ns 2>&1 || true
+  echo "--- pod describe ---"
+  kubectl describe pod -n integration-ns 2>&1 || true
+  echo "--- pod logs (all containers) ---"
+  for pod in $(kubectl get pod -n integration-ns -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    echo "-- $pod --"
+    kubectl logs -n integration-ns "$pod" --all-containers --prefix --tail=100 2>&1 || true
+  done
+  echo "--- recent namespace events ---"
+  kubectl get events -n integration-ns --sort-by=.lastTimestamp 2>&1 || true
+}
+
 wait_namespace_synced() {
   log "waiting for hydra-operator to report the namespace synced"
   for i in $(seq 1 60); do
@@ -235,6 +271,7 @@ wait_namespace_synced() {
     sleep 5
   done
   cat "$WORKDIR/hydra-operator.log" >&2
+  dump_cluster_state
   die "namespace never reported synced"
 }
 
@@ -245,6 +282,7 @@ create_agent_and_wait_running() {
     | jq -r .id)"
 
   log "waiting for hydra-operator to reconcile the agent to running (real Knative Service)"
+  local status=""
   for i in $(seq 1 60); do
     status="$(curl -sSf "$HYDRA_BASE_URL/api/v1/agents/$AGENT_ID" "${AUTH[@]}" | jq -r .status)"
     if [[ "$status" == "running" ]]; then
@@ -253,11 +291,14 @@ create_agent_and_wait_running() {
     fi
     if [[ "$status" == "failed" ]]; then
       cat "$WORKDIR/hydra-operator.log" >&2
+      dump_cluster_state
       die "agent reconciliation reported failed"
     fi
     sleep 5
   done
+  log "last known agent status: $status"
   cat "$WORKDIR/hydra-operator.log" >&2
+  dump_cluster_state
   die "agent never reached running"
 }
 
