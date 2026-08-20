@@ -43,4 +43,4 @@ make helm-template  # render the Helm chart to stdout
 
 ## License
 
-Internal — part of the Hydra platform.
+[Apache License 2.0](LICENSE)
