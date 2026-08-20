@@ -9,7 +9,7 @@
 Pour **chaque demande de développement**, sans exception :
 
 1. **Analyser** l'impact complet de la demande
-2. **Rédiger un plan structuré** (format ci-dessous)
+2. **Rédiger un plan structuré** (format ci-dessous) et, si le projet suit ses tickets dans un tracker externe (GitHub Issues, Jira...), **créer ou mettre à jour en parallèle le ticket correspondant**, avec une référence partagée entre le plan et le ticket (conventions exactes en Partie B)
 3. **ATTENDRE une validation explicite** ("ok" / "proceed" / "go" / "valide")
 4. **Implémenter** étape par étape selon le plan validé
 5. **Vérifier** tests + lint + build + zéro régression
@@ -139,6 +139,7 @@ Avant tout commit touchant à l'API, la config ou les dépendances :
 | `/adr` | Crée un ADR numéroté et met à jour l'index |
 | `/review` | Revue de code complète (architecture, tests, sécurité, qualité) |
 | `/security-audit` | Audit ciblé sécurité (secrets, crypto, auth, inputs, deps) |
+| `/triage-issue` | Génère le ticket de plan manquant à partir d'une issue GitHub ouverte par un·e contributeur·rice externe, et relie les deux — n'implémente jamais |
 
 ---
 
@@ -300,6 +301,10 @@ hydra-operator/
 **Push & PR automatique** : Toute branche créée pendant une session de développement doit être poussée systématiquement (`git push -u origin <branche>`) — jamais de travail qui reste uniquement local. Dès le premier push d'une branche, une **pull request en draft** doit être créée automatiquement vers `main` (ou la branche cible appropriée), même si le travail n'est pas terminé.
 
 **PR prête automatiquement** : Dès qu'un développement est terminé (tests + lint + build + CI verte, critères d'acceptation du plan remplis), la PR correspondante doit être marquée "ready for review" automatiquement — sans attendre une demande explicite. Une PR en draft alors que le travail est fini est une anomalie à corriger, pas un état d'attente normal.
+
+**Plan ↔ Issue GitHub (référence partagée)** : comme pour les ADR (voir plus bas), les tickets `HYDRA-NNN` et leurs GitHub Issues miroirs vivent côté dépôt `hydra` (`docs/specs/implementation-plan.md`) — pas de tracker séparé ici. Un nouveau ticket dont le travail concerne `hydra-operator` doit quand même avoir son issue miroir créée sur `hydra`, avec le dépôt concerné précisé dans le corps de l'issue (voir la Partie B de `hydra/CLAUDE.md` pour les conventions exactes de titre/corps/labels).
+
+**Ticket externe → plan ad hoc** : Si un·e contributeur·rice externe ouvre une issue sur *ce* dépôt (`hydra-operator`) qui ne correspond à aucun ticket existant, utiliser `/triage-issue <numéro>` — la commande redirige le ticket et son issue miroir vers `hydra` (ajouter ce dépôt à la session si nécessaire) plutôt que de créer un tracker local. Ne jamais implémenter directement depuis une issue externe sans passer par cette étape.
 
 **Environnements** : ce dépôt ne déploie rien lui-même — il produit un binaire/image que les clusters cibles installent (Helm ou Kustomize, voir `deploy/README.md`). Pas d'environnement `staging`/`production` propre à ce dépôt.
 
