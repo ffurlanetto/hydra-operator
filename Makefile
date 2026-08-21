@@ -79,14 +79,14 @@ helm-template:
 	  --set hydra.clusterId=example-cluster
 
 ## helm-package: Package the Helm chart into a versioned .tgz under dist/.
-# CHART_VERSION strips the leading "v" from VERSION (git describe) since Helm
-# chart versions must be valid SemVer without it; appVersion keeps the "v" to
-# match the Docker image tag exactly (Chart.yaml's own hardcoded appVersion
-# is a placeholder, always overridden here).
-CHART_VERSION := $(patsubst v%,%,$(VERSION))
+# Version derivation is shared with docker.yml's helm-package job via
+# scripts/chart-version.sh, so the two never drift — see that script for
+# why this can't just reuse $(VERSION) (git describe --always falls back
+# to a bare SHA when the repo has no tags yet, which isn't valid SemVer).
 helm-package: helm-lint
 	mkdir -p dist
-	helm package ./helm --destination dist --version $(CHART_VERSION) --app-version $(VERSION)
+	eval "$$(scripts/chart-version.sh)"; \
+	helm package ./helm --destination dist --version "$$CHART_VERSION" --app-version "$$APP_VERSION"
 
 ## deploy-validate: Render deploy/base with Kustomize (build-only check, no cluster needed).
 deploy-validate:

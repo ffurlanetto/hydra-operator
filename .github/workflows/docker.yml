@@ -72,9 +72,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history + tags: git describe below needs real tags to
-          # produce a proper version on non-tag pushes, not just a bare
-          # short SHA (which isn't valid SemVer for a Helm chart version).
+          # Full history + tags: scripts/chart-version.sh needs to detect
+          # an exact tag match, which requires the tag objects to be
+          # present (not guaranteed under the default shallow checkout).
           fetch-depth: 0
 
       - uses: azure/setup-helm@v4
@@ -84,9 +84,9 @@ jobs:
       - name: Compute version
         id: version
         run: |
-          VERSION=$(git describe --tags --always --dirty)
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "chart_version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          eval "$(scripts/chart-version.sh)"
+          echo "version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Lint chart
         run: helm lint ./helm
