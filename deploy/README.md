@@ -87,11 +87,27 @@ kubectl create namespace hydra-operator-system --dry-run=client -o yaml | kubect
 kubectl create secret generic hydra-operator-registration \
   -n hydra-operator-system --from-literal=token=<one-time-token>
 
+# Recommended: install the published chart (packaged and pushed to GHCR on
+# every tagged release, see .github/workflows/docker.yml) — no clone needed.
+helm install hydra-operator oci://ghcr.io/ffurlanetto/charts/hydra-operator \
+  --version <chart-version> \
+  --namespace hydra-operator-system \
+  --set hydra.url=https://hydra.example.com \
+  --set hydra.clusterId=example-cluster
+
+# Alternative for local development against an unreleased chart change:
 helm install hydra-operator ./helm \
   --namespace hydra-operator-system \
   --set hydra.url=https://hydra.example.com \
   --set hydra.clusterId=example-cluster
 ```
+
+Chart versions match the release tags (`git describe`-derived, leading `v`
+stripped) — see the repo's [Releases](https://github.com/ffurlanetto/hydra-operator/releases)
+for available `<chart-version>` values. `helm search repo`/`helm show`
+don't work against OCI registries; use `helm pull oci://... --version X.Y.Z`
+or `helm show values oci://ghcr.io/ffurlanetto/charts/hydra-operator --version X.Y.Z`
+to inspect a specific version before installing it.
 
 See `helm/values.yaml` for the full set of configurable values.
 

@@ -61,3 +61,56 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  helm-package:
+    name: Package & Publish Helm Chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags: git describe below needs real tags to
+          # produce a proper version on non-tag pushes, not just a bare
+          # short SHA (which isn't valid SemVer for a Helm chart version).
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.0"
+
+      - name: Compute version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "chart_version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Lint chart
+        run: helm lint ./helm
+
+      - name: Package chart
+        run: |
+          mkdir -p dist
+          helm package ./helm --destination dist \
+            --version "${{ steps.version.outputs.chart_version }}" \
+            --app-version "${{ steps.version.outputs.version }}"
+
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydra-operator-helm-chart
+          path: dist/*.tgz
+          retention-days: 7
+
+      # Only real tag releases get pushed to the OCI registry — a plain
+      # push to main only packages/lints as a build-health check, so main
+      # builds never leave a trail of throwaway "dev" chart versions in
+      # a registry meant for actual installable releases.
+      - name: Push chart to GHCR
+        if: ${{ github.repository_owner == 'ffurlanetto' && startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+          helm push "dist/hydra-operator-${{ steps.version.outputs.chart_version }}.tgz" oci://${{ env.REGISTRY }}/ffurlanetto/charts
