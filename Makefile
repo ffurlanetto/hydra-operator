@@ -11,7 +11,7 @@ LDFLAGS    := -s -w \
 
 ENVTEST_K8S_VERSION := 1.31.0
 
-.PHONY: all build test lint docker helm-lint helm-template deploy-validate rbac-drift-check run clean tidy test-envtest test-e2e e2e-local e2e-hydra-integration
+.PHONY: all build test lint docker helm-lint helm-template helm-package deploy-validate rbac-drift-check run clean tidy test-envtest test-e2e e2e-local e2e-hydra-integration
 
 all: build
 
@@ -77,6 +77,16 @@ helm-template:
 	helm template hydra-operator ./helm \
 	  --set hydra.url=https://hydra.example.com \
 	  --set hydra.clusterId=example-cluster
+
+## helm-package: Package the Helm chart into a versioned .tgz under dist/.
+# CHART_VERSION strips the leading "v" from VERSION (git describe) since Helm
+# chart versions must be valid SemVer without it; appVersion keeps the "v" to
+# match the Docker image tag exactly (Chart.yaml's own hardcoded appVersion
+# is a placeholder, always overridden here).
+CHART_VERSION := $(patsubst v%,%,$(VERSION))
+helm-package: helm-lint
+	mkdir -p dist
+	helm package ./helm --destination dist --version $(CHART_VERSION) --app-version $(VERSION)
 
 ## deploy-validate: Render deploy/base with Kustomize (build-only check, no cluster needed).
 deploy-validate:
